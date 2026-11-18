@@ -44,17 +44,26 @@ impl From<DPoint> for Point {
 impl Point {
     pub const ZERO: Self = Self { x: 0, y: 0 };
 
+    pub const fn new(x: isize, y: isize) -> Self {
+        Self { x, y }
+    }
     /// Returns `p1 × p2`.
     ///
     /// Corresponds to `int xprod(point_t, point_t)` in Potrace.
     pub const fn xprod(self, p2: Self) -> isize {
         self.x * p2.y - self.y * p2.x
     }
+    pub const fn signum(self) -> Self {
+        Self { x: self.x.signum(), y: self.y.signum() }
+    }
 }
 
 impl DPoint {
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
 
+    pub const fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
     /// Range over the straight line segment `a..=b` when lambda ranges over `0..=1`.
     ///
     /// Corresponds to `dpoint_t interval(double, dpoint_t, dpoint_t)` in Potrace.
@@ -189,5 +198,55 @@ impl DPoint {
         } else {
             -1.0
         }
+    }
+}
+
+impl std::ops::Add for Point {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self { x: self.x + rhs.x, y: self.y + rhs.y }
+    }
+}
+impl std::ops::Sub for Point {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self { x: self.x - rhs.x, y: self.y - rhs.y }
+    }
+}
+impl std::ops::Mul<isize> for Point {
+    type Output = Self;
+    fn mul(self, rhs: isize) -> Self::Output {
+        Self { x: self.x * rhs, y: self.y * rhs }
+    }
+}
+impl std::ops::Div<isize> for Point {
+    type Output = Self;
+    fn div(self, rhs: isize) -> Self::Output {
+        Self { x: self.x / rhs, y: self.y / rhs }
+    }
+}
+
+impl std::ops::Add for DPoint {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self { x: self.x + rhs.x, y: self.y + rhs.y }
+    }
+}
+impl std::ops::Sub for DPoint {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self { x: self.x - rhs.x, y: self.y - rhs.y }
+    }
+}
+impl std::ops::Mul<f64> for DPoint {
+    type Output = Self;
+    fn mul(self, rhs: f64) -> Self::Output {
+        Self { x: self.x * rhs, y: self.y * rhs }
+    }
+}
+impl std::ops::Div<f64> for DPoint {
+    type Output = Self;
+    fn div(self, rhs: f64) -> Self::Output {
+        Self { x: self.x / rhs, y: self.y / rhs }
     }
 }

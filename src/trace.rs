@@ -84,33 +84,23 @@ pub fn process_path(plist: &mut PathTreeList, param: &Params) -> Result<(), ()> 
 
 /// Preparation: fill in the sum* fields of a path (used for later rapid summing).
 fn calc_sums(pp: &mut Path) -> Result<(), ()> {
-    let points = pp.pt.as_ref();
-
-    let mut sums = util::alloc_zeroed::<Sums>(points.len())?;
+    let points = &*pp.pt;
+    pp.sums = util::alloc_zeroed::<Sums>(points.len() + 1)?;
+    let sums = &mut *pp.sums;
 
     /* origin */
-    pp.x0 = points[0].x;
-    pp.y0 = points[0].y;
+    let origin = points[0];
+    pp.p0 = origin;
 
     /* preparatory computation for later fast summing */
-    sums[0].x2 = 0.0;
-    sums[0].xy = 0.0;
-    sums[0].y2 = 0.0;
-    sums[0].x = 0.0;
-    sums[0].y = 0.0;
+    let mut acc = Sums::default();
+    sums[0] = acc;
 
-    // TODO: this does excessive bounds checks
-    for i in 0..points.len() {
-        let x = (points[i].x - pp.x0) as f64;
-        let y = (points[i].y - pp.y0) as f64;
-        sums[i + 1].x = sums[i].x + x;
-        sums[i + 1].y = sums[i].y + y;
-        sums[i + 1].x2 = sums[i].x2 + x * x;
-        sums[i + 1].xy = sums[i].xy + x * y;
-        sums[i + 1].y2 = sums[i].y2 + y * y;
+    for (i, pt) in points.iter().enumerate() {
+        acc += DPoint::from(*pt - origin);
+        sums[i + 1] = acc;
     }
 
-    pp.sums = sums;
     Ok(())
 }
 
@@ -148,9 +138,8 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
         if a <= c { a <= b && b < c } else { a <= b || b < c }
     }
 
-    // TODO: all array accesses here do bounds checks
-    let pt = pp.pt.as_ref();
-    let n = pt.len();
+    let points = &*pp.pt;
+    let n = points.len();
 
     let mut pivk = util::alloc_zeroed::<usize>(n)?;
     let mut nc = util::alloc_zeroed::<usize>(n)?;
@@ -163,9 +152,12 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
     in practice, correctness does not depend on the word "furthest"
     above.  */
     let mut k = 0;
-    for i in (0..=n - 1).rev() {
-        if pt[i].x != pt[k].x && pt[i].y != pt[k].y {
+    let mut k_pt = points[k];
+
+    for (i, point) in points.iter().enumerate().rev() {
+        if *point != k_pt {
             k = i + 1; /* necessarily i<n-1 in this case */
+            k_pt = points[k];
         }
         nc[i] = k;
     }
@@ -175,55 +167,53 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
     /* determine pivot points: for each i, let pivk[i] be the furthest k
     such that all j with i<j<k lie on a line connecting i,k. */
 
-    for i in (0..=n - 1).rev() {
+    for i in (0..n).rev() {
         let mut ct = [0u32; 4];
 
         /* keep track of "directions" that have occurred */
-        let dir = (3 + 3 * (pt[(i + 1) % n].x - pt[i].x) + (pt[(i + 1) % n].y - pt[i].y)) / 2;
+        let diff = points[(i + 1).rem_euclid(n)] - points[i];
+        let dir = (3 + 3 * diff.x + diff.y) / 2;
         ct[dir as usize] += 1;
 
-        let mut constraint = [Point::ZERO, Point::ZERO];
+        let mut constraint = [Point::ZERO; 2];
 
         /* find the next k such that no straight line from i to k */
-        let mut k = nc[i] as usize;
+        let mut k = nc[i];
         let mut k1 = i;
 
-        let mut cur = Point::ZERO;
-        let mut off = Point::ZERO;
-
-        // CHANGE: A flag instead of labels constraint_viol: and foundk:.
-        let mut constraint_violated = false;
-
-        loop {
-            let dir = (3 + 3 * (pt[k].x - pt[k1].x).signum() + (pt[k].y - pt[k1].y).signum()) / 2;
+        let constraint_violated = loop {
+            let diff = (points[k] - points[k1]).signum();
+            let dir = (3 + 3 * diff.x + diff.y) / 2;
             ct[dir as usize] += 1;
 
             /* if all four "directions" have occurred, cut this path */
             if ct[0] != 0 && ct[1] != 0 && ct[2] != 0 && ct[3] != 0 {
                 pivk[i] = k1;
-                break;
+                break false;
             }
 
-            cur.x = pt[k].x - pt[i].x;
-            cur.y = pt[k].y - pt[i].y;
+            let cur = points[k] - points[i];
 
             /* see if current constraint is violated */
             if constraint[0].xprod(cur) < 0 || constraint[1].xprod(cur) > 0 {
-                constraint_violated = true;
-                break;
+                break true;
             }
 
             /* else, update constraint */
             if cur.x.abs() <= 1 && cur.y.abs() <= 1 {
                 /* no constraint */
             } else {
-                off.x = cur.x + (if cur.y >= 0 && (cur.y > 0 || cur.x < 0) { 1 } else { -1 });
-                off.y = cur.y + (if cur.x <= 0 && (cur.x < 0 || cur.y < 0) { 1 } else { -1 });
+                let off = Point::new(
+                    cur.x + (if cur.y >= 0 && (cur.y > 0 || cur.x < 0) { 1 } else { -1 }),
+                    cur.y + (if cur.x <= 0 && (cur.x < 0 || cur.y < 0) { 1 } else { -1 }),
+                );
                 if constraint[0].xprod(off) >= 0 {
                     constraint[0] = off;
                 }
-                off.x = cur.x + (if cur.y <= 0 && (cur.y < 0 || cur.x < 0) { 1 } else { -1 });
-                off.y = cur.y + (if cur.x >= 0 && (cur.x > 0 || cur.y < 0) { 1 } else { -1 });
+                let off = Point::new(
+                    cur.x + (if cur.y <= 0 && (cur.y < 0 || cur.x < 0) { 1 } else { -1 }),
+                    cur.y + (if cur.x >= 0 && (cur.x > 0 || cur.y < 0) { 1 } else { -1 }),
+                );
                 if constraint[1].xprod(off) <= 0 {
                     constraint[1] = off;
                 }
@@ -231,17 +221,16 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
             k1 = k;
             k = nc[k1];
             if !cyclic(k, i, k1) {
-                break;
+                break true;
             }
-        }
+        };
 
         if constraint_violated {
             /* k1 was the last "corner" satisfying the current constraint, and
             k is the first one violating it. We now need to find the last
             point along k1..k which satisfied the constraint. */
-            let dk = Point { x: (pt[k].x - pt[k1].x).signum(), y: (pt[k].y - pt[k1].y).signum() };
-            cur.x = pt[k1].x - pt[i].x;
-            cur.y = pt[k1].y - pt[i].y;
+            let dk = (points[k] - points[k1]).signum();
+            let cur = points[k1] - points[i];
             /* find largest integer j such that xprod(constraint[0], cur+j*dk)
             >= 0 and xprod(constraint[1], cur+j*dk) <= 0. Use bilinearity
             of xprod. */
@@ -265,21 +254,22 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
     /* clean up: for each i, let lon[i] be the largest k such that for
     all i' with i<=i'<k, i'<k<=pivk[i']. */
 
-    let lon = pp.lon.as_mut();
+    let lon = &mut *pp.lon;
 
     let mut j = pivk[n - 1];
     lon[n - 1] = j;
-    for i in (0..=n - 2).rev() {
+    for i in (0..n - 1).rev() {
         if cyclic(i + 1, pivk[i], j) {
             j = pivk[i];
         }
         lon[i] = j;
     }
 
-    let mut i = n - 1;
-    while cyclic((i + 1) % n, j, lon[i]) {
+    for i in (0..n).rev() {
+        if !cyclic((i + 1).rem_euclid(n), j, lon[i]) {
+            break;
+        }
         lon[i] = j;
-        i -= 1;
     }
 
     Ok(())
@@ -292,10 +282,9 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
 /// FIXME: implement cyclic version.
 ///
 fn best_polygon(pp: &mut Path) -> Result<(), ()> {
-    // TODO: all array accesses here do bounds checks
     let n = pp.pt.len();
 
-    let mut pen = util::alloc_zeroed::<f64>(n + 1)?;
+    let mut penalties = util::alloc_zeroed::<f64>(n + 1)?;
     let mut prev = util::alloc_zeroed::<usize>(n + 1)?;
     let mut clip0 = util::alloc_zeroed::<usize>(n)?;
     let mut clip1 = util::alloc_zeroed::<usize>(n + 1)?;
@@ -303,7 +292,7 @@ fn best_polygon(pp: &mut Path) -> Result<(), ()> {
     let mut seg1 = util::alloc_zeroed::<usize>(n + 1)?;
 
     /* calculate clipped paths */
-    let lon = pp.lon.as_ref();
+    let lon = &*pp.lon;
     for i in 0..n {
         let mut c = (lon[(i - 1).rem_euclid(n)] - 1).rem_euclid(n);
         if c == i {
@@ -343,19 +332,19 @@ fn best_polygon(pp: &mut Path) -> Result<(), ()> {
     /* note: the outer 2 loops jointly have at most n iterations, thus
     the worst-case behavior here is quadratic. In practice, it is
     close to linear since the inner loop tends to be short. */
-    pen[0] = 0.0;
+    penalties[0] = 0.0;
 
     for j in 1..=m {
         for i in seg1[j]..=seg0[j] {
             let mut best = -1.0;
             for k in (clip1[i]..=seg0[j - 1]).rev() {
-                let thispen = penalty3(pp, k, i) + pen[k];
-                if best < 0.0 || thispen < best {
+                let this_penalty = penalty3(pp, k, i) + penalties[k];
+                if best < 0.0 || this_penalty < best {
                     prev[i] = k;
-                    best = thispen;
+                    best = this_penalty;
                 }
             }
-            pen[i] = best;
+            penalties[i] = best;
         }
     }
 
@@ -378,50 +367,32 @@ fn best_polygon(pp: &mut Path) -> Result<(), ()> {
 /// This needs the "lon" and "sum*" data.
 ///
 fn penalty3(pp: &mut Path, i: usize, mut j: usize) -> f64 {
-    let pt = pp.pt.as_ref();
-    let sums = pp.sums.as_ref();
-    let n = pt.len();
+    let points = &*pp.pt;
+    let sums = &*pp.sums;
+    let n = points.len();
 
-    /* assume 0<=i<j<=n  */
+    debug_assert!(i < j && j <= n); /* assume 0<=i<j<=n  */
 
-    let mut r = 0; /* rotations from i to j */
+    let k = (j + 1 - i) as f64;
 
-    if j >= n {
+    let s = if j >= n {
         j -= n;
-        r = 1;
-    }
-
-    let (x, y, x2, xy, y2, k);
-
-    /* critical inner loop: the "if" gives a 4.6 percent speedup */
-    if r == 0 {
-        x = sums[j + 1].x - sums[i].x;
-        y = sums[j + 1].y - sums[i].y;
-        x2 = sums[j + 1].x2 - sums[i].x2;
-        xy = sums[j + 1].xy - sums[i].xy;
-        y2 = sums[j + 1].y2 - sums[i].y2;
-        k = (j + 1 - i) as f64;
+        sums[j + 1] - sums[i] + sums[n]
     } else {
-        x = sums[j + 1].x - sums[i].x + sums[n].x;
-        y = sums[j + 1].y - sums[i].y + sums[n].y;
-        x2 = sums[j + 1].x2 - sums[i].x2 + sums[n].x2;
-        xy = sums[j + 1].xy - sums[i].xy + sums[n].xy;
-        y2 = sums[j + 1].y2 - sums[i].y2 + sums[n].y2;
-        k = (j + 1 - i + n) as f64;
-    }
+        sums[j + 1] - sums[i]
+    };
 
-    let px = ((pt[i].x + pt[j].x) / 2 - pt[0].x) as f64;
-    let py = ((pt[i].y + pt[j].y) / 2 - pt[0].y) as f64;
-    let ey = (pt[j].x - pt[i].x) as f64;
-    let ex = -(pt[j].y - pt[i].y) as f64;
+    let p = DPoint::from((points[i] + points[j]) / 2 - points[0]);
+    let ey = (points[j].x - points[i].x) as f64;
+    let ex = -(points[j].y - points[i].y) as f64;
 
-    let a = (x2 - 2.0 * x * px) / k + px * px;
-    let b = (xy - x * py - y * px) / k + px * py;
-    let c = (y2 - 2.0 * y * py) / k + py * py;
+    let a = (s.x2 - 2.0 * s.x * p.x) / k + p.x * p.x;
+    let b = (s.xy - s.x * p.y - s.y * p.x) / k + p.x * p.y;
+    let c = (s.y2 - 2.0 * s.y * p.y) / k + p.y * p.y;
 
-    let s = ex * ex * a + 2.0 * ex * ey * b + ey * ey * c;
+    let score = ex * ex * a + 2.0 * ex * ey * b + ey * ey * c;
 
-    s.sqrt()
+    score.sqrt()
 }
 
 pub type QuadForm = [[f64; 3]; 3];
@@ -441,17 +412,7 @@ fn quadform(q: QuadForm, w: DPoint) -> f64 {
 fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     let n = pp.pt.len();
     let m = pp.po.len();
-    let x0 = pp.x0 as f64;
-    let y0 = pp.y0 as f64;
-
-    //   dpoint_t *ctr = NULL;      /* ctr[m] */
-    //   dpoint_t *dir = NULL;      /* dir[m] */
-    //   quadform_t *q = NULL;      /* q[m] */
-    //   double v[3];
-    //   double d;
-    //   int i, j, k, l;
-    //   dpoint_t s;
-    //   int r;
+    let origin = DPoint::from(pp.p0);
 
     let mut ctr = util::alloc_zeroed::<DPoint>(m)?;
     let mut dir = util::alloc_zeroed::<DPoint>(m)?;
@@ -462,13 +423,13 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     /* calculate "optimal" point-slope representation for each line
     segment */
     for i in 0..m {
-        let j = pp.po[(i + 1) % m];
-        let j = ((j - pp.po[i]) % (n)) + pp.po[i];
+        let j = pp.po[(i + 1).rem_euclid(m)];
+        let j = ((j - pp.po[i]).rem_euclid(n)) + pp.po[i];
         point_slope(pp, pp.po[i] as isize, j as isize, &mut ctr[i], &mut dir[i]);
     }
 
-    let po = pp.po.as_ref();
-    let pt = pp.pt.as_ref();
+    let po = &*pp.po;
+    let pt = &*pp.pt;
 
     let mut v = [0.0; 3];
     /* represent each line segment as a singular quadratic form; the
@@ -477,11 +438,7 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     for i in 0..m {
         let d = dir[i].x.powi(2) + dir[i].y.powi(2);
         if d == 0.0 {
-            for j in 0..3 {
-                for k in 0..3 {
-                    q[i][j][k] = 0.0;
-                }
-            }
+            q[i] = QuadForm::default();
         } else {
             v[0] = dir[i].y;
             v[1] = -dir[i].x;
@@ -501,11 +458,11 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     the two lines. */
     for i in 0..m {
         /* let s be the vertex, in coordinates relative to x0/y0 */
-        let s = DPoint { x: (pt[po[i]].x as f64) - x0, y: (pt[po[i]].y as f64) - y0 };
+        let s = DPoint::from(pt[po[i]]) - origin;
 
         /* intersect segments i-1 and i */
 
-        let j = (i - 1) % m;
+        let j = (i - 1).rem_euclid(m);
 
         let mut qm = QuadForm::default();
         /* add quadratic forms */
@@ -515,21 +472,16 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
             }
         }
 
-        let mut w = DPoint::default();
-        loop {
+        let mut w = loop {
             /* minimize the quadratic form Q on the unit square */
             /* find intersection */
 
-            // #ifdef HAVE_GCC_LOOP_BUG
-            //       /* work around gcc bug #12243 */
-            //       free(NULL);
-            // #endif
-
             let det = qm[0][0] * qm[1][1] - qm[0][1] * qm[1][0];
             if det != 0.0 {
-                w.x = (-qm[0][2] * qm[1][1] + qm[1][2] * qm[0][1]) / det;
-                w.y = (qm[0][2] * qm[1][0] - qm[1][2] * qm[0][0]) / det;
-                break;
+                break DPoint::new(
+                    -qm[0][2] * qm[1][1] + qm[1][2] * qm[0][1],
+                    qm[0][2] * qm[1][0] - qm[1][2] * qm[0][0],
+                ) / det;
             }
 
             /* matrix is singular - lines are parallel. Add another,
@@ -551,19 +503,19 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
                     qm[l][k] += v[l] * v[k] / d;
                 }
             }
-        }
+        };
+
         let mut dx = (w.x - s.x).abs();
         let mut dy = (w.y - s.y).abs();
         if dx <= 0.5 && dy <= 0.5 {
-            pp.curve.segments[i].vertex = DPoint { x: w.x + x0, y: w.y + y0 };
+            pp.curve.segments[i].vertex = w + origin;
             continue;
         }
 
         /* the minimum was not in the unit square; now minimize quadratic
         on boundary of square */
         let mut min = quadform(qm, s);
-        let mut xmin = s.x;
-        let mut ymin = s.y;
+        let mut min_p = s;
 
         if qm[0][0] != 0.0 {
             for z in 0..2 {
@@ -574,8 +526,7 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
                 let cand = quadform(qm, w);
                 if dx <= 0.5 && cand < min {
                     min = cand;
-                    xmin = w.x;
-                    ymin = w.y;
+                    min_p = w;
                 }
             }
         }
@@ -586,11 +537,10 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
                 w.x = s.x - 0.5 + z as f64;
                 w.y = -(qm[1][0] * w.x + qm[1][2]) / qm[1][1];
                 dy = (w.y - s.y).abs();
-                let cand = quadform(qm, w);
-                if dy <= 0.5 && cand < min {
-                    min = cand;
-                    xmin = w.x;
-                    ymin = w.y;
+                let candidate = quadform(qm, w);
+                if dy <= 0.5 && candidate < min {
+                    min = candidate;
+                    min_p = w;
                 }
             }
         }
@@ -599,17 +549,15 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
             for k in 0..2 {
                 w.x = s.x - 0.5 + l as f64;
                 w.y = s.y - 0.5 + k as f64;
-                let cand = quadform(qm, w);
-                if cand < min {
-                    min = cand;
-                    xmin = w.x;
-                    ymin = w.y;
+                let candidate = quadform(qm, w);
+                if candidate < min {
+                    min = candidate;
+                    min_p = w;
                 }
             }
         }
 
-        pp.curve.segments[i].vertex = DPoint { x: xmin + x0, y: ymin + y0 };
-        continue;
+        pp.curve.segments[i].vertex = min_p + origin;
     }
 
     Ok(())
@@ -619,7 +567,7 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize, ctr: &mut DPoint, di
     /* assume i < j */
 
     let n = path.pt.len() as isize;
-    let sums = path.sums.as_mut();
+    let sums = &mut *path.sums;
 
     let mut r = 0; /* rotations from i to j */
 
@@ -640,25 +588,22 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize, ctr: &mut DPoint, di
         r += 1;
     }
 
-    // CHANGE: moved calculation of k here, before r is re-binded as f64
     let k = (j + 1 - i + r * n) as f64;
-    // CHANGE: re-bind r as f64, since it's now only used as f64
-    let r = r as f64;
 
-    // CHANGE: re-bind i, j and n as usize for indexing
+    // re-bind i, j and n as usize for indexing
     let i = i as usize;
     let j = j as usize;
     let n = n as usize;
+    // re-bind r as f64, since it's now only used as f64
+    let r = r as f64;
 
-    // TODO: this does bounds checks
     let x = sums[j + 1].x - sums[i].x + r * sums[n].x;
     let y = sums[j + 1].y - sums[i].y + r * sums[n].y;
     let x2 = sums[j + 1].x2 - sums[i].x2 + r * sums[n].x2;
     let xy = sums[j + 1].xy - sums[i].xy + r * sums[n].xy;
     let y2 = sums[j + 1].y2 - sums[i].y2 + r * sums[n].y2;
 
-    ctr.x = x / k;
-    ctr.y = y / k;
+    *ctr = DPoint::new(x, y) / k;
 
     let mut a = (x2 - x * x / k) / k;
     let b = (xy - x * y / k) / k;
@@ -674,19 +619,16 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize, ctr: &mut DPoint, di
     if a.abs() >= c.abs() {
         l = (a * a + b * b).sqrt();
         if l != 0.0 {
-            dir.x = -b / l;
-            dir.y = a / l;
+            *dir = DPoint::new(-b, a) / l;
         }
     } else {
         l = (c * c + b * b).sqrt();
         if l != 0.0 {
-            dir.x = -c / l;
-            dir.y = b / l;
+            *dir = DPoint::new(-c, b) / l;
         }
     }
     if l == 0.0 {
-        dir.x = 0.0;
-        dir.y = 0.0; /* sometimes this can happen when k=4: the two eigenvalues coincide */
+        *dir = DPoint::ZERO; /* sometimes this can happen when k=4: the two eigenvalues coincide */
     }
 }
 
@@ -694,51 +636,47 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize, ctr: &mut DPoint, di
 ///
 fn smooth(curve: &mut Curve, alphamax: f64) {
     let m = curve.segments.len();
-
-    //   int i, j, k;
-    //   double dd, denom, alpha;
-    //   dpoint_t p2, p3, p4;
+    let seg = &mut *curve.segments;
 
     /* examine each vertex and find its best fit */
     for i in 0..m {
         let j = (i + 1).rem_euclid(m);
         let k = (i + 2).rem_euclid(m);
-        let p4 = curve.segments[k].vertex.lerp(curve.segments[j].vertex, 0.5);
+
+        let v_i = seg[i].vertex;
+        let v_j = seg[j].vertex;
+        let v_k = seg[k].vertex;
+
+        let p4 = v_k.lerp(v_j, 0.5);
 
         let mut alpha;
-        let denom = curve.segments[i].vertex.ddenom(curve.segments[k].vertex);
+        let denom = v_i.ddenom(v_k);
         if denom != 0.0 {
-            let dd =
-                curve.segments[i].vertex.dpara(curve.segments[j].vertex, curve.segments[k].vertex)
-                    / denom;
+            let dd = v_i.dpara(v_j, v_k) / denom;
             let dd = dd.abs();
             alpha = if dd > 1.0 { 1.0 - 1.0 / dd } else { 0.0 };
-            alpha = alpha / 0.75;
+            alpha /= 0.75;
         } else {
             alpha = 4.0 / 3.0;
         }
-        curve.segments[j].alpha0 = alpha; /* remember "original" value of alpha */
+        seg[j].alpha0 = alpha; /* remember "original" value of alpha */
 
         if alpha >= alphamax {
             /* pointed corner */
-            curve.segments[j].tag = SegmentTag::Corner;
-            curve.segments[j].c[1] = curve.segments[j].vertex;
-            curve.segments[j].c[2] = p4;
+            seg[j].tag = SegmentTag::Corner;
+            seg[j].c[1] = v_j;
+            seg[j].c[2] = p4;
         } else {
-            if alpha < 0.55 {
-                alpha = 0.55;
-            } else if alpha > 1.0 {
-                alpha = 1.0;
-            }
-            let p2 = curve.segments[i].vertex.lerp(curve.segments[j].vertex, 0.5 + 0.5 * alpha);
-            let p3 = curve.segments[k].vertex.lerp(curve.segments[j].vertex, 0.5 + 0.5 * alpha);
-            curve.segments[j].tag = SegmentTag::CurveTo;
-            curve.segments[j].c[0] = p2;
-            curve.segments[j].c[1] = p3;
-            curve.segments[j].c[2] = p4;
+            alpha = alpha.clamp(0.55, 1.0);
+            let p2 = v_i.lerp(v_j, 0.5 + 0.5 * alpha);
+            let p3 = v_k.lerp(v_j, 0.5 + 0.5 * alpha);
+            seg[j].tag = SegmentTag::CurveTo;
+            seg[j].c[0] = p2;
+            seg[j].c[1] = p3;
+            seg[j].c[2] = p4;
         }
-        curve.segments[j].alpha = alpha; /* store the "cropped" value of alpha */
-        curve.segments[j].beta = 0.5;
+        seg[j].alpha = alpha; /* store the "cropped" value of alpha */
+        seg[j].beta = 0.5;
     }
     curve.alphacurve = true;
 }
@@ -747,6 +685,7 @@ fn smooth(curve: &mut Curve, alphamax: f64) {
 ///
 fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
     let m = pp.curve.segments.len();
+    let seg = &*pp.curve.segments;
 
     let mut pt = util::alloc_zeroed::<isize>(m + 1)?;
     let mut pen = util::alloc_zeroed::<f64>(m + 1)?;
@@ -757,10 +696,10 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
 
     /* pre-calculate convexity: +1 = right turn, -1 = left turn, 0 = corner */
     for i in 0..m {
-        if pp.curve.segments[i].tag == SegmentTag::CurveTo {
-            convc[i] = pp.curve.segments[(i - 1).rem_euclid(m)]
+        if seg[i].tag == SegmentTag::CurveTo {
+            convc[i] = seg[(i - 1).rem_euclid(m)]
                 .vertex
-                .dpara(pp.curve.segments[i].vertex, pp.curve.segments[(i + 1).rem_euclid(m)].vertex)
+                .dpara(seg[i].vertex, seg[(i + 1).rem_euclid(m)].vertex)
                 .signum() as isize;
         } else {
             convc[i] = 0;
@@ -770,18 +709,14 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
     /* pre-calculate areas */
     let mut area = 0.0;
     areac[0] = 0.0;
-    let p0 = pp.curve.segments[0].vertex;
+    let p0 = seg[0].vertex;
     for i in 0..m {
         let i1 = (i + 1).rem_euclid(m);
-        if pp.curve.segments[i1].tag == SegmentTag::CurveTo {
-            let alpha = pp.curve.segments[i1].alpha;
-            area += 0.3
-                * alpha
-                * (4.0 - alpha)
-                * pp.curve.segments[i].c[2]
-                    .dpara(pp.curve.segments[i1].vertex, pp.curve.segments[i1].c[2])
-                / 2.0;
-            area += p0.dpara(pp.curve.segments[i].c[2], pp.curve.segments[i1].c[2]) / 2.0;
+        if seg[i1].tag == SegmentTag::CurveTo {
+            let alpha = seg[i1].alpha;
+            area +=
+                0.3 * alpha * (4.0 - alpha) * seg[i].c[2].dpara(seg[i1].vertex, seg[i1].c[2]) / 2.0;
+            area += p0.dpara(seg[i].c[2], seg[i1].c[2]) / 2.0;
         }
         areac[i + 1] = area;
     }
@@ -790,8 +725,7 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
     pen[0] = 0.0;
     len[0] = 0;
 
-    /* Fixme: we always start from a fixed point -- should find the best
-    curve cyclically */
+    /* Fixme: we always start from a fixed point -- should find the best curve cyclically */
 
     for j in 1..=m {
         /* calculate best path from 0 to j */
@@ -800,18 +734,11 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
         len[j] = len[j - 1] + 1;
 
         for i in (0..=j - 2).rev() {
-            let r = opti_penalty(
-                pp,
-                i,
-                (j).rem_euclid(m),
-                opt_tolerance,
-                convc.as_ref(),
-                areac.as_ref(),
-            );
+            let r = opti_penalty(pp, i, (j).rem_euclid(m), opt_tolerance, &convc, &areac);
             if let Ok(o) = r {
-                if len[j] > len[i] + 1 || (len[j] == len[i] + 1 && pen[j] > pen[i] + o.pen) {
+                if len[j] > len[i] + 1 || (len[j] == len[i] + 1 && pen[j] > pen[i] + o.penalty) {
                     pt[j] = i as isize;
-                    pen[j] = pen[i] + o.pen;
+                    pen[j] = pen[i] + o.penalty;
                     len[j] = len[i] + 1;
                     opt[j] = o;
                 }
@@ -823,32 +750,28 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
 
     let om = len[m];
     pp.ocurve.init(om)?;
+    let seg = &*pp.curve.segments;
+    let oseg = &mut *pp.ocurve.segments;
 
     let mut s = util::alloc_zeroed::<f64>(om)?;
     let mut t = util::alloc_zeroed::<f64>(om)?;
 
     let mut j = m;
-    for i in (0..=om - 1).rev() {
+    for i in (0..om).rev() {
         if pt[j] == (j - 1) as isize {
-            pp.ocurve.segments[i].tag = pp.curve.segments[(j).rem_euclid(m)].tag;
-            pp.ocurve.segments[i].c[0] = pp.curve.segments[(j).rem_euclid(m)].c[0];
-            pp.ocurve.segments[i].c[1] = pp.curve.segments[(j).rem_euclid(m)].c[1];
-            pp.ocurve.segments[i].c[2] = pp.curve.segments[(j).rem_euclid(m)].c[2];
-            pp.ocurve.segments[i].vertex = pp.curve.segments[(j).rem_euclid(m)].vertex;
-            pp.ocurve.segments[i].alpha = pp.curve.segments[(j).rem_euclid(m)].alpha;
-            pp.ocurve.segments[i].alpha0 = pp.curve.segments[(j).rem_euclid(m)].alpha0;
-            pp.ocurve.segments[i].beta = pp.curve.segments[(j).rem_euclid(m)].beta;
+            oseg[i] = seg[j.rem_euclid(m)];
             s[i] = 1.0;
             t[i] = 1.0;
         } else {
-            pp.ocurve.segments[i].tag = SegmentTag::CurveTo;
-            pp.ocurve.segments[i].c[0] = opt[j].c[0];
-            pp.ocurve.segments[i].c[1] = opt[j].c[1];
-            pp.ocurve.segments[i].c[2] = pp.curve.segments[(j).rem_euclid(m)].c[2];
-            pp.ocurve.segments[i].vertex = pp.curve.segments[(j).rem_euclid(m)].c[2]
-                .lerp(pp.curve.segments[(j).rem_euclid(m)].vertex, opt[j].s);
-            pp.ocurve.segments[i].alpha = opt[j].alpha;
-            pp.ocurve.segments[i].alpha0 = opt[j].alpha;
+            oseg[i].tag = SegmentTag::CurveTo;
+            oseg[i].c[0] = opt[j].c[0];
+            oseg[i].c[1] = opt[j].c[1];
+
+            let j_mod = j.rem_euclid(m);
+            oseg[i].c[2] = seg[j_mod].c[2];
+            oseg[i].vertex = seg[j_mod].c[2].lerp(seg[j_mod].vertex, opt[j].s);
+            oseg[i].alpha = opt[j].alpha;
+            oseg[i].alpha0 = opt[j].alpha;
             s[i] = opt[j].s;
             t[i] = opt[j].t;
         }
@@ -858,7 +781,7 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
     /* calculate beta parameters */
     for i in 0..om {
         let i1 = (i + 1).rem_euclid(om);
-        pp.ocurve.segments[i].beta = s[i] / (s[i] + t[i1]);
+        oseg[i].beta = s[i] / (s[i] + t[i1]);
     }
     pp.ocurve.alphacurve = true;
 
@@ -867,7 +790,7 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
 
 #[derive(Default, Clone, Copy)]
 struct OptiPenalty {
-    pen: f64,
+    penalty: f64,
     c: [DPoint; 2],
     t: f64,
     s: f64,
@@ -887,6 +810,7 @@ fn opti_penalty(
     areac: &[f64],
 ) -> Result<OptiPenalty, ()> {
     let m = pp.curve.segments.len();
+    let seg = &*pp.curve.segments;
 
     /* check convexity, corner-freeness, and maximum bend < 179 degrees */
 
@@ -902,7 +826,7 @@ fn opti_penalty(
     if conv == 0 {
         return Err(());
     }
-    let d = pp.curve.segments[i].vertex.distance(pp.curve.segments[i1].vertex);
+    let d = seg[i].vertex.distance(seg[i1].vertex);
 
     let mut k = k1;
 
@@ -912,23 +836,13 @@ fn opti_penalty(
         if convc[k1] != conv {
             return Err(());
         }
-        if pp.curve.segments[i]
-            .vertex
-            .cprod(
-                pp.curve.segments[i1].vertex,
-                pp.curve.segments[k1].vertex,
-                pp.curve.segments[k2].vertex,
-            )
-            .signum() as isize
+        if seg[i].vertex.cprod(seg[i1].vertex, seg[k1].vertex, seg[k2].vertex).signum() as isize
             != conv
         {
             return Err(());
         }
-        if pp.curve.segments[i].vertex.iprod1(
-            pp.curve.segments[i1].vertex,
-            pp.curve.segments[k1].vertex,
-            pp.curve.segments[k2].vertex,
-        ) < d * pp.curve.segments[k1].vertex.distance(pp.curve.segments[k2].vertex) * COS179
+        if seg[i].vertex.iprod1(seg[i1].vertex, seg[k1].vertex, seg[k2].vertex)
+            < d * seg[k1].vertex.distance(seg[k2].vertex) * COS179
         {
             return Err(());
         }
@@ -936,15 +850,14 @@ fn opti_penalty(
     }
 
     /* the curve we're working in: */
-    let p0 = pp.curve.segments[(i).rem_euclid(m)].c[2];
-    let p1 = pp.curve.segments[(i + 1).rem_euclid(m)].vertex;
-    let p2 = pp.curve.segments[(j).rem_euclid(m)].vertex;
-    let p3 = pp.curve.segments[(j).rem_euclid(m)].c[2];
+    let p0 = seg[(i).rem_euclid(m)].c[2];
+    let p1 = seg[(i + 1).rem_euclid(m)].vertex;
+    let p2 = seg[(j).rem_euclid(m)].vertex;
+    let p3 = seg[(j).rem_euclid(m)].c[2];
 
     /* determine its area */
     let mut area = areac[j] - areac[i];
-    area -= pp.curve.segments[0].vertex.dpara(pp.curve.segments[i].c[2], pp.curve.segments[j].c[2])
-        / 2.0;
+    area -= seg[0].vertex.dpara(seg[i].c[2], seg[j].c[2]) / 2.0;
     if i >= j {
         area += areac[m];
     }
@@ -973,11 +886,16 @@ fn opti_penalty(
         return Err(());
     }
 
-    let r = area as f64 / ap; /* relative area */
+    let r = area / ap; /* relative area */
     let alpha = 2.0 - (4.0 - r / 0.3).sqrt(); /* overall alpha for p0-o-p3 curve */
 
-    let mut res =
-        OptiPenalty { pen: 0.0, c: [p0.lerp(p1, t * alpha), p3.lerp(p2, s * alpha)], alpha, t, s };
+    let mut res = OptiPenalty {
+        penalty: 0.0,
+        c: [p0.lerp(p1, t * alpha), p3.lerp(p2, s * alpha)],
+        alpha,
+        t,
+        s,
+    };
 
     let p1 = res.c[0];
     let p2 = res.c[1]; /* the proposed curve is now (p0,p1,p2,p3) */
@@ -987,26 +905,26 @@ fn opti_penalty(
     let mut k = (i + 1).rem_euclid(m);
     while k != j {
         k1 = (k + 1).rem_euclid(m);
-        let t = p0.tangent(p1, p2, p3, pp.curve.segments[k].vertex, pp.curve.segments[k1].vertex);
+        let t = p0.tangent(p1, p2, p3, seg[k].vertex, seg[k1].vertex);
         if t < -0.5 {
             return Err(());
         }
         let pt = DPoint::bezier(t, p0, p1, p2, p3);
-        let d = pp.curve.segments[k].vertex.distance(pp.curve.segments[k1].vertex);
+        let d = seg[k].vertex.distance(seg[k1].vertex);
         if d == 0.0 {
             /* this should never happen */
             return Err(());
         }
-        let d1 = pp.curve.segments[k].vertex.dpara(pp.curve.segments[k1].vertex, pt) / d;
+        let d1 = seg[k].vertex.dpara(seg[k1].vertex, pt) / d;
         if d1.abs() > opt_tolerance {
             return Err(());
         }
-        if pp.curve.segments[k].vertex.iprod(pp.curve.segments[k1].vertex, pt) < 0.0
-            || pp.curve.segments[k1].vertex.iprod(pp.curve.segments[k].vertex, pt) < 0.0
+        if seg[k].vertex.iprod(seg[k1].vertex, pt) < 0.0
+            || seg[k1].vertex.iprod(seg[k].vertex, pt) < 0.0
         {
             return Err(());
         }
-        res.pen += d1.powi(2);
+        res.penalty += d1.powi(2);
         k = k1;
     }
 
@@ -1014,21 +932,19 @@ fn opti_penalty(
     let mut k = i;
     while k != j {
         k1 = (k + 1).rem_euclid(m);
-        let t = p0.tangent(p1, p2, p3, pp.curve.segments[k].c[2], pp.curve.segments[k1].c[2]);
+        let t = p0.tangent(p1, p2, p3, seg[k].c[2], seg[k1].c[2]);
         if t < -0.5 {
             return Err(());
         }
         let pt = DPoint::bezier(t, p0, p1, p2, p3);
-        let d = pp.curve.segments[k].c[2].distance(pp.curve.segments[k1].c[2]);
+        let d = seg[k].c[2].distance(seg[k1].c[2]);
         if d == 0.0 {
             /* this should never happen */
             return Err(());
         }
-        let mut d1 = pp.curve.segments[k].c[2].dpara(pp.curve.segments[k1].c[2], pt) / d;
-        let mut d2 = pp.curve.segments[k].c[2]
-            .dpara(pp.curve.segments[k1].c[2], pp.curve.segments[k1].vertex)
-            / d;
-        d2 *= 0.75 * pp.curve.segments[k1].alpha;
+        let mut d1 = seg[k].c[2].dpara(seg[k1].c[2], pt) / d;
+        let mut d2 = seg[k].c[2].dpara(seg[k1].c[2], seg[k1].vertex) / d;
+        d2 *= 0.75 * seg[k1].alpha;
         if d2 < 0.0 {
             d1 = -d1;
             d2 = -d2;
@@ -1037,7 +953,7 @@ fn opti_penalty(
             return Err(());
         }
         if d1 < d2 {
-            res.pen += (d1 - d2).powi(2);
+            res.penalty += (d1 - d2).powi(2);
         }
         k = k1;
     }

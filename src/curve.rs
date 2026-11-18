@@ -31,7 +31,7 @@ pub enum SegmentTag {
     Corner = 2,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Segment {
     pub(crate) tag: SegmentTag, // int* tag
     pub(crate) c: [DPoint; 3],  // dpoint_t[3]* c
@@ -61,6 +61,40 @@ pub struct Sums {
     pub(crate) y2: f64,
 }
 
+impl std::ops::Add for Sums {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            x2: self.x2 + rhs.x2,
+            xy: self.xy + rhs.xy,
+            y2: self.y2 + rhs.y2,
+        }
+    }
+}
+impl std::ops::AddAssign<DPoint> for Sums {
+    fn add_assign(&mut self, rhs: DPoint) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.x2 += rhs.x * rhs.x;
+        self.xy += rhs.x * rhs.y;
+        self.y2 += rhs.y * rhs.y;
+    }
+}
+impl std::ops::Sub for Sums {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            x2: self.x2 - rhs.x2,
+            xy: self.xy - rhs.xy,
+            y2: self.y2 - rhs.y2,
+        }
+    }
+}
+
 /// Corresponds to `potrace_privpath_t` in Potrace.
 #[derive(Clone, Default)]
 pub struct Path {
@@ -68,8 +102,7 @@ pub struct Path {
     pub(crate) pt: Box<[Point]>,  // point_t* pt // pt[len]
     pub(crate) lon: Box<[usize]>, // int* lon    // lon[len]
 
-    pub(crate) x0: isize,         // int x0
-    pub(crate) y0: isize,         // int y0
+    pub(crate) p0: Point,         // int x0, y0
     pub(crate) sums: Box<[Sums]>, // sums_t* sums // sums[len+1]
 
     // m: usize,                 // int m
