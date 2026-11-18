@@ -7,12 +7,13 @@
  * See the file LICENSE for details.
  */
 
+use crate::util::alloc_zeroed;
 use std::rc::Rc;
 
 /// A 2D [`isize`] point.
 ///
 /// Corresponds to `point_t` in Potrace.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Point {
     pub x: isize,
     pub y: isize,
@@ -21,7 +22,7 @@ pub struct Point {
 /// A 2D [`f64`] point.
 ///
 /// Corresponds to `dpoint_t` in Potrace.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct DPoint {
     pub x: f64,
     pub y: f64,
@@ -191,8 +192,9 @@ impl DPoint {
 }
 
 /// Enum for segment tags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SegmentTag {
+    #[default]
     None = 0,
     /// Corresponds to `POTRACE_CURVETO` in Potrace.
     CurveTo = 1,
@@ -225,23 +227,23 @@ impl PrivCurve {
     /// Initializes this curve to the given size.
     ///
     /// Corresponds to `int privcurve_init(privcurve_t*, int)` in Potrace.
-    // CHANGE: unlike in Potrace, allocation isn't checked.
-    pub fn new(size: usize) -> Self {
-        Self {
+    // CHANGE: Unlike in Potrace, allocation isn't checked.
+    pub fn new(size: usize) -> Result<Self, ()> {
+        Ok(Self {
             length: size,
-            tags: Vec::with_capacity(size).into_boxed_slice(),
-            control_points: Vec::with_capacity(size).into_boxed_slice(),
+            tags: alloc_zeroed(size)?,
+            control_points: alloc_zeroed(size)?,
             alpha_curve: false, // TODO: ?
-            vertices: Vec::with_capacity(size).into_boxed_slice(),
-            alphas: Vec::with_capacity(size).into_boxed_slice(),
-            alpha0s: Vec::with_capacity(size).into_boxed_slice(),
-            betas: Vec::with_capacity(size).into_boxed_slice(),
-        }
+            vertices: alloc_zeroed(size)?,
+            alphas: alloc_zeroed(size)?,
+            alpha0s: alloc_zeroed(size)?,
+            betas: alloc_zeroed(size)?,
+        })
     }
 }
 
 /// Corresponds to `sums_t` in Potrace.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct PrivSums {
     pub x: f64,
     pub y: f64,
@@ -256,8 +258,8 @@ pub(crate) struct PrivPath {
     pub points: Box<[Point]>,             // point_t* ptr // pt[len]
     pub longest_lines_from: Box<[usize]>, // int* lon     // lon[len]
 
-    pub x0: usize,             // int x0
-    pub y0: usize,             // int y0
+    pub x0: isize,             // int x0
+    pub y0: isize,             // int y0
     pub sums: Box<[PrivSums]>, // sums_t* sums // sums[len+1]
 
     pub optimal_polygons: Box<[usize]>, // int m, int* po // po[m]
@@ -274,6 +276,12 @@ impl PrivPath {
     pub const fn fcurve(&mut self) -> &mut PrivCurve {
         if self.is_o_final_curve { &mut self.ocurve } else { &mut self.curve }
     }
+    pub const fn set_fcurve_to_ocurve(&mut self) {
+        self.is_o_final_curve = true;
+    }
+    pub const fn set_fcurve_to_curve(&mut self) {
+        self.is_o_final_curve = false;
+    }
 }
 
 /// Linked list of signed curve segments. Also carries a tree structure.
@@ -286,5 +294,5 @@ pub struct PathTreeList {
     pub(crate) next: Option<Rc<PathTreeList>>,    // potrace_path_s* next
     pub(crate) child: Option<Rc<PathTreeList>>,   // potrace_path_s* childlist
     pub(crate) sibling: Option<Rc<PathTreeList>>, // potrace_path_s* sibling
-    pub(crate) private: *mut PrivPath,            // potrace_privpath_s* priv
+    pub(crate) private: Box<PrivPath>,            // potrace_privpath_s* priv
 }

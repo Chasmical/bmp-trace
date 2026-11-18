@@ -14,3 +14,5 @@ mod trace;
 pub use bitmap::*;
 pub use curve::*;
 pub use trace::*;
+
+mod util;
