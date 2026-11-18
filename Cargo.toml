@@ -2,6 +2,11 @@
 name = "bmp-trace"
 version = "0.1.0"
 edition = "2024"
+description = ""
+authors = ["Chasmical <kaz@chsm.dev>", "Peter Selinger <selinger@users.sourceforge.net>"]
 license = "GPL-2.0"
 
 [dependencies]
+
+[features]
+default = []
