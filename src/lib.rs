@@ -9,10 +9,12 @@
 
 mod bitmap;
 mod curve;
+mod point;
 mod trace;
 
 pub use bitmap::*;
 pub use curve::*;
+pub use point::*;
 pub use trace::*;
 
 mod util;

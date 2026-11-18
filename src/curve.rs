@@ -7,193 +7,22 @@
  * See the file LICENSE for details.
  */
 
-use crate::util::alloc_zeroed;
+use crate::{DPoint, Point, util};
 use std::rc::Rc;
 
-/// A 2D [`isize`] point.
-///
-/// Corresponds to `point_t` in Potrace.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Point {
-    pub x: isize,
-    pub y: isize,
-}
-
-/// A 2D [`f64`] point.
-///
-/// Corresponds to `dpoint_t` in Potrace.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct DPoint {
-    pub x: f64,
-    pub y: f64,
-}
-
-impl From<Point> for DPoint {
-    /// Converts [`Point`] to [`DPoint`].
-    ///
-    /// Corresponds to `dpoint_t dpoint(point_t)` in Potrace.
-    // CHANGE: Implemented the `dpoint` function as a From<> impl.
-    #[inline]
-    fn from(value: Point) -> Self {
-        Self { x: value.x as f64, y: value.y as f64 }
-    }
-}
-impl From<DPoint> for Point {
-    fn from(value: DPoint) -> Self {
-        Self { x: value.x as isize, y: value.y as isize }
-    }
-}
-
-impl Point {
-    /// Returns `p1 × p2`.
-    ///
-    /// Corresponds to `int xprod(point_t, point_t)` in Potrace.
-    pub fn xprod(self, p2: Self) -> isize {
-        self.x * p2.y - self.y * p2.x
-    }
-}
-
-impl DPoint {
-    /// Range over the straight line segment `a..=b` when lambda ranges over `0..=1`.
-    ///
-    /// Corresponds to `dpoint_t interval(double, dpoint_t, dpoint_t)` in Potrace.
-    // CHANGE: Renamed interval to lerp.
-    #[inline]
-    pub fn lerp(self, to: Self, lambda: f64) -> Self {
-        Self { x: self.x + lambda * (to.x - self.x), y: self.y + lambda * (to.y - self.y) }
-    }
-    /// Returns a direction that is 90 degrees counterclockwise from `p2-p0`,
-    /// but then restricted to one of the major wind directions (N, NW, W, etc.).
-    ///
-    /// Corresponds to `point_t dorth_infty(dpoint_t, dpoint_t)` in Potrace.
-    // CHANGE: dorth_infty returns DPoint instead of Point to avoid f64->isize->f64 conversions.
-    #[inline]
-    pub fn dorth_infty(self, p2: Self) -> Self {
-        Self { y: (p2.x - self.x).signum(), x: (p2.y - self.y).signum() }
-    }
-    /// Returns `(p1-p0)×(p2-p0)`, the area of a parallelogram.
-    ///
-    /// Corresponds to `double dpara(dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
-    pub fn dpara(self, p1: Self, p2: Self) -> f64 {
-        let x1 = p1.x - self.x;
-        let y1 = p1.y - self.y;
-        let x2 = p2.x - self.x;
-        let y2 = p2.y - self.y;
-        x1 * y2 - x2 * y1
-    }
-    /// Corresponds to `double ddenom(dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
-    pub fn ddenom(self, p2: Self) -> f64 {
-        let r = self.dorth_infty(p2);
-        r.y * (p2.x - self.x) - r.x * (p2.y - self.y)
-    }
-
-    /// Returns `(p1-p0)×(p3-p2)`.
-    ///
-    /// Corresponds to `double cprod(dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
-    pub fn cprod(self, p1: Self, p2: Self, p3: Self) -> f64 {
-        let x1 = p1.x - self.x;
-        let y1 = p1.y - self.y;
-        let x2 = p3.x - p2.x;
-        let y2 = p3.y - p2.y;
-        x1 * y2 - x2 * y1
-    }
-    /// Returns `(p1-p0)*(p2-p0)`.
-    ///
-    /// Corresponds to `double cprod(dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
-    pub fn iprod(self, p1: Self, p2: Self) -> f64 {
-        let x1 = p1.x - self.x;
-        let y1 = p1.y - self.y;
-        let x2 = p2.x - self.x;
-        let y2 = p2.y - self.y;
-        x1 * x2 + y1 * y2
-    }
-    /// Returns `(p1-p0)*(p3-p2)`.
-    ///
-    /// Corresponds to `double cprod(dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
-    pub fn iprod1(self, p1: Self, p2: Self, p3: Self) -> f64 {
-        let x1 = p1.x - self.x;
-        let y1 = p1.y - self.y;
-        let x2 = p3.x - p2.x;
-        let y2 = p3.y - p2.y;
-        x1 * x2 + y1 * y2
-    }
-    /// Returns the distance between two points.
-    ///
-    /// Corresponds to `double ddist(dpoint_t, dpoint_t)` in Potrace.
-    // CHANGE: Renamed ddist to distance.
-    #[inline]
-    pub fn distance(self, to: Self) -> f64 {
-        // TODO: check that powi(2) decomposes into just (x*x)
-        ((self.x - to.x).powi(2) + (self.y - to.y).powi(2)).sqrt()
-    }
-
-    /// Calculates the point of a bezier curve.
-    ///
-    /// Corresponds to `dpoint_t bezier(double, dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
-    pub fn bezier(t: f64, p0: Self, p1: Self, p2: Self, p3: Self) -> Self {
-        let s = 1.0 - t;
-
-        // Note: a good optimizing compiler (such as gcc-3) reduces the following
-        // to 16 multiplications, using common subexpression elimination.
-
-        Self {
-            x: s * s * s * p0.x
-                + 3.0 * (s * s * t) * p1.x
-                + 3.0 * (t * t * s) * p2.x
-                + t * t * t * p3.x,
-            y: s * s * s * p0.y
-                + 3.0 * (s * s * t) * p1.y
-                + 3.0 * (t * t * s) * p2.y
-                + t * t * t * p3.y,
-        }
-    }
-
-    /// Calculates the point `t` in `0..=1` on the (convex) bezier curve `(p0,p1,p2,p3)`
-    /// which is tangent to `q1-q0`. Returns `None` if there is no solution in `0..=1`.
-    ///
-    /// Corresponds to `double tangent(dpoint_t, dpoint_t, dpoint_t, dpoint_t, dpoint_t, dpoint_t)`
-    /// in Potrace.
-    pub fn tangent(self, p1: Self, p2: Self, p3: Self, q0: Self, q1: Self) -> f64 {
-        /* (1-t)^2 a0 + 2(1-t)t b0 + t^2 c0 = 0 */
-        let a0 = Self::cprod(self, p1, q0, q1);
-        let b0 = Self::cprod(p1, p2, q0, q1);
-        let c0 = Self::cprod(p2, p3, q0, q1);
-
-        /* a t^2 + b t + c = 0 */
-        let a = a0 - 2.0 * b0 + c0;
-        let b = -2.0 * a0 + 2.0 * b0;
-        let c = a0;
-
-        let d = b * b - 4.0 * a * c;
-
-        if a == 0.0 || d < 0.0 {
-            return -1.0;
-        }
-
-        let s = d.sqrt();
-
-        let r1 = (-b + s) / (2.0 * a);
-        let r2 = (-b - s) / (2.0 * a);
-
-        if matches!(r1, 0.0..=1.0) {
-            r1
-        } else if matches!(r2, 0.0..=1.0) {
-            r2
-        } else {
-            -1.0
-        }
-    }
+/// Corresponds to `privcurve_t` in Potrace.
+// TODO: Putting all of the data into a Segment struct makes the layout slightly more efficient
+// (only need to store one length), but may reduce the performance gains due to memory locality.
+// This will need to be benchmarked and compared.
+#[derive(Clone, Default)]
+pub struct Curve {
+    pub(crate) segments: Box<[Segment]>, // int n // see Segment struct
+    pub(crate) alphacurve: bool,         // int alphacurve
 }
 
 /// Enum for segment tags.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SegmentTag {
+pub enum SegmentTag {
     #[default]
     None = 0,
     /// Corresponds to `POTRACE_CURVETO` in Potrace.
@@ -202,85 +31,59 @@ pub(crate) enum SegmentTag {
     Corner = 2,
 }
 
-/// Corresponds to `privcurve_t` in Potrace.
-// TODO: length is stored in all boxes. Can be optimized a bit.
-pub(crate) struct PrivCurve {
-    pub length: usize,                      // int n
-    pub tags: Box<[SegmentTag]>,            // int* tag
-    pub control_points: Box<[[DPoint; 3]]>, // dpoint_t[3]* c
-    pub alpha_curve: bool,                  // int alphacurve
-    pub vertices: Box<[DPoint]>,            // dpoint_t* vertex
-    pub alphas: Box<[f64]>,                 // double* alpha
-    pub alpha0s: Box<[f64]>,                // double* alpha0
-    pub betas: Box<[f64]>,                  // double* beta
+#[derive(Debug, Default, Clone)]
+pub struct Segment {
+    pub(crate) tag: SegmentTag, // int* tag
+    pub(crate) c: [DPoint; 3],  // dpoint_t[3]* c
+    pub(crate) vertex: DPoint,  // dpoint_t* vertex
+    pub(crate) alpha: f64,      // double* alpha
+    pub(crate) alpha0: f64,     // double* alpha0
+    pub(crate) beta: f64,       // double* beta
 }
 
-/// Corresponds to `potrace_curve_t` in Potrace.
-// TODO: length is stored in all boxes. Can be optimized a bit.
-pub struct Curve {
-    len: usize,                         // int n
-    tags: Box<[SegmentTag]>,            // int* tag
-    control_points: Box<[[DPoint; 3]]>, // potrace_dpoint_t[3]* c
-}
-
-impl PrivCurve {
+impl Curve {
     /// Initializes this curve to the given size.
     ///
     /// Corresponds to `int privcurve_init(privcurve_t*, int)` in Potrace.
-    // CHANGE: Unlike in Potrace, allocation isn't checked.
-    pub fn new(size: usize) -> Result<Self, ()> {
-        Ok(Self {
-            length: size,
-            tags: alloc_zeroed(size)?,
-            control_points: alloc_zeroed(size)?,
-            alpha_curve: false, // TODO: ?
-            vertices: alloc_zeroed(size)?,
-            alphas: alloc_zeroed(size)?,
-            alpha0s: alloc_zeroed(size)?,
-            betas: alloc_zeroed(size)?,
-        })
+    pub(crate) fn init(&mut self, len: usize) -> Result<(), ()> {
+        self.segments = util::alloc_zeroed(len)?;
+        Ok(())
     }
 }
 
 /// Corresponds to `sums_t` in Potrace.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct PrivSums {
-    pub x: f64,
-    pub y: f64,
-    pub x2: f64,
-    pub xy: f64,
-    pub y2: f64,
+pub struct Sums {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) x2: f64,
+    pub(crate) xy: f64,
+    pub(crate) y2: f64,
 }
 
 /// Corresponds to `potrace_privpath_t` in Potrace.
-pub(crate) struct PrivPath {
-    pub len: usize,                       // int len
-    pub points: Box<[Point]>,             // point_t* ptr // pt[len]
-    pub longest_lines_from: Box<[usize]>, // int* lon     // lon[len]
+#[derive(Clone, Default)]
+pub struct Path {
+    // len: usize,                // int len
+    pub(crate) pt: Box<[Point]>,  // point_t* pt // pt[len]
+    pub(crate) lon: Box<[usize]>, // int* lon    // lon[len]
 
-    pub x0: isize,             // int x0
-    pub y0: isize,             // int y0
-    pub sums: Box<[PrivSums]>, // sums_t* sums // sums[len+1]
+    pub(crate) x0: isize,         // int x0
+    pub(crate) y0: isize,         // int y0
+    pub(crate) sums: Box<[Sums]>, // sums_t* sums // sums[len+1]
 
-    pub optimal_polygons: Box<[usize]>, // int m, int* po // po[m]
+    // m: usize,                 // int m
+    pub(crate) po: Box<[usize]>, // int* po // po[m]
 
-    pub curve: PrivCurve,   // privcurve_t curve
-    pub ocurve: PrivCurve,  // privcurve_t ocurve
-    is_o_final_curve: bool, // privcurve_t* fcurve
+    pub(crate) curve: Curve, // privcurve_t curve
+    pub(crate) ocurve: Curve, // privcurve_t ocurve
+                             // privcurve_t* fcurve
 }
 
-impl PrivPath {
-    // CHANGE: fcurve is implemented like this, because a pointer pointing into the current
-    // structure would require PrivPath to be pinned in memory.
+impl Path {
     #[inline(always)]
-    pub const fn fcurve(&mut self) -> &mut PrivCurve {
-        if self.is_o_final_curve { &mut self.ocurve } else { &mut self.curve }
-    }
-    pub const fn set_fcurve_to_ocurve(&mut self) {
-        self.is_o_final_curve = true;
-    }
-    pub const fn set_fcurve_to_curve(&mut self) {
-        self.is_o_final_curve = false;
+    pub const fn fcurve(&mut self) -> &mut Curve {
+        if !self.ocurve.segments.is_empty() { &mut self.ocurve } else { &mut self.curve }
     }
 }
 
@@ -288,11 +91,11 @@ impl PrivPath {
 ///
 /// Corresponds to `potrace_path_t` in Potrace.
 pub struct PathTreeList {
-    pub(crate) area: usize,                       // int area
-    pub(crate) sign: isize,                       // int sign
-    pub(crate) curve: Curve,                      // potrace_curve_t curve
-    pub(crate) next: Option<Rc<PathTreeList>>,    // potrace_path_s* next
-    pub(crate) child: Option<Rc<PathTreeList>>,   // potrace_path_s* childlist
-    pub(crate) sibling: Option<Rc<PathTreeList>>, // potrace_path_s* sibling
-    pub(crate) private: Box<PrivPath>,            // potrace_privpath_s* priv
+    pub(crate) area: usize,                         // int area
+    pub(crate) sign: isize,                         // int sign
+    pub(crate) curve: Curve,                        // potrace_curve_t curve
+    pub(crate) next: Option<Rc<PathTreeList>>,      // potrace_path_s* next
+    pub(crate) childlist: Option<Rc<PathTreeList>>, // potrace_path_s* childlist
+    pub(crate) sibling: Option<Rc<PathTreeList>>,   // potrace_path_s* sibling
+    pub(crate) private: Box<Path>,                  // potrace_privpath_s* priv
 }

@@ -20,22 +20,23 @@ pub struct Bitmap<'a> {
 }
 
 impl<'a> Bitmap<'a> {
-    /// Accesses a scanline at specified Y index.
+    /// Returns a scanline at specified Y index.
     ///
     /// Corresponds to `bm_scanline(bm, y)` in Potrace.
     #[inline(always)]
     pub fn scanline(&self, y: usize) -> Option<Scanline<'a>> {
-        let line = self.raw_words.get(y * self.words_per_scanline..)?;
+        let word_offset = y * self.words_per_scanline;
+        let line = self.raw_words.get(word_offset..word_offset + self.words_per_scanline)?;
         Some(Scanline(line))
     }
-    /// Accesses a word at specified X and Y coordinates.
+    /// Returns the word at specified X and Y coordinates.
     ///
     /// Corresponds to `bm_index(bm, x, y)` in Potrace.
     #[inline(always)]
     pub fn word(&self, x: usize, y: usize) -> Option<&'a Word> {
         self.scanline(y)?.word(x)
     }
-    /// Gets the value of a pixel at X and Y coordinates.
+    /// Returns the value of a pixel at X and Y coordinates.
     ///
     /// Corresponds to `BM_GET(bm, x, y)` in Potrace.
     #[inline(always)]
@@ -47,19 +48,18 @@ impl<'a> Bitmap<'a> {
 /// A read-only reference to a slice of Potrace words, representing a bitmap row.
 ///
 /// Corresponds to `potrace_word_t*` in Potrace.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct Scanline<'a>(&'a [Word]);
-// TODO: ScanlineMut<'a>?
 
 impl<'a> Scanline<'a> {
-    /// Accesses a word at specified X coordinate.
+    /// Returns the word at specified X coordinate.
     ///
     /// Corresponds to `bm_index(bm, x, y)` in Potrace.
     #[inline(always)]
     pub fn word(&self, x: usize) -> Option<&'a Word> {
-        self.0.get(x / Word::BITS)
+        self.0.get(x)
     }
-    /// Gets the value of a pixel at X coordinate.
+    /// Returns the value of a pixel at X coordinate.
     ///
     /// Corresponds to `BM_GET(bm, x, y)` in Potrace.
     #[inline(always)]
@@ -71,7 +71,7 @@ impl<'a> Scanline<'a> {
 /// A Potrace word, a wrapper over [`usize`].
 ///
 /// Corresponds to `potrace_word` in Potrace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Word(pub usize);
 
 impl Word {
