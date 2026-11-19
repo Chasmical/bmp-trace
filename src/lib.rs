@@ -8,11 +8,13 @@
  */
 
 mod bitmap;
+mod bitmap_io;
 mod curve;
 mod point;
 mod trace;
 
 pub use bitmap::*;
+pub use bitmap_io::*;
 pub use curve::*;
 pub use point::*;
 pub use trace::*;
