@@ -178,7 +178,7 @@ impl<R: Read + Seek> BmpReader<R> {
                             let Ok(b) = self.fgetc() else { break 'eof };
 
                             bm.word_mut(i * 8, y).unwrap().0 |=
-                                (b as usize) << (8 * (Word::SIZE - 1 - (i % Word::SIZE)));
+                                (b as u32) << (8 * (Word::SIZE - 1 - (i % Word::SIZE)));
                         }
                     }
                 },
@@ -242,7 +242,7 @@ impl<R: Read + Seek> BmpReader<R> {
         }
 
         let err = if unexpected_eof {
-            bm.resize(real_height).or(Err(ReadError::Alloc))?;
+            bm.try_resize(real_height).or(Err(ReadError::Alloc))?;
             Some(ReadError::Format)
         } else {
             None
@@ -412,7 +412,7 @@ impl<R: Read + Seek> BmpReader<R> {
                             let Ok(mut b) = self.bmp_readint(1) else { break 'eof };
                             b ^= mask;
                             bm.word_mut(i * 8, y).unwrap().0 |=
-                                (b as usize) << (8 * (Word::SIZE - 1 - (i % Word::SIZE)));
+                                b << (8 * (Word::SIZE - 1 - (i % Word::SIZE)));
                         }
                         self.bmp_pad().or(Err(ReadError::Format))?;
                     }
@@ -537,9 +537,7 @@ impl<R: Read + Seek> BmpReader<R> {
                                     break;
                                 }
                                 real_height = (y + 1) as usize;
-                                unsafe {
-                                    bm.put_unchecked(x as usize, y as usize, col[(i & 1) as usize]);
-                                };
+                                bm.try_put(x as usize, y as usize, col[(i & 1) as usize]);
                                 x += 1;
                             }
                         } else if c == 0 {
@@ -569,16 +567,14 @@ impl<R: Read + Seek> BmpReader<R> {
                                     break;
                                 }
                                 real_height = (y + 1) as usize;
-                                unsafe {
-                                    bm.put_unchecked(
-                                        x as usize,
-                                        y as usize,
-                                        coltable
-                                            .get(((b >> (4 - 4 * (i & 1))) & 0xf) as usize)
-                                            .copied()
-                                            .unwrap_or(false),
-                                    );
-                                };
+                                bm.try_put(
+                                    x as usize,
+                                    y as usize,
+                                    coltable
+                                        .get(((b >> (4 - 4 * (i & 1))) & 0xf) as usize)
+                                        .copied()
+                                        .unwrap_or(false),
+                                );
                                 x += 1;
                             }
                             if (c + 1) & 2 != 0 {
@@ -608,13 +604,11 @@ impl<R: Read + Seek> BmpReader<R> {
                                     break;
                                 }
                                 real_height = (y + 1) as usize;
-                                unsafe {
-                                    bm.put_unchecked(
-                                        x as usize,
-                                        y as usize,
-                                        coltable.get(c as usize).copied().unwrap_or(false),
-                                    );
-                                }
+                                bm.try_put(
+                                    x as usize,
+                                    y as usize,
+                                    coltable.get(c as usize).copied().unwrap_or(false),
+                                );
                                 x += 1;
                             }
                         } else if c == 0 {
@@ -642,13 +636,11 @@ impl<R: Read + Seek> BmpReader<R> {
                                     break;
                                 }
                                 real_height = (y + 1) as usize;
-                                unsafe {
-                                    bm.put_unchecked(
-                                        x as usize,
-                                        y as usize,
-                                        coltable.get(b as usize).copied().unwrap_or(false),
-                                    );
-                                };
+                                bm.try_put(
+                                    x as usize,
+                                    y as usize,
+                                    coltable.get(b as usize).copied().unwrap_or(false),
+                                );
                                 x += 1;
                             }
                             if (c & 1) != 0 {
@@ -666,7 +658,7 @@ impl<R: Read + Seek> BmpReader<R> {
         }
 
         let err = if unexpected_eof {
-            bm.resize(real_height).or(Err(ReadError::Alloc))?;
+            bm.try_resize(real_height).or(Err(ReadError::Alloc))?;
             Some(ReadError::Format)
         } else {
             /* skip any potential junk after the data section, but don't

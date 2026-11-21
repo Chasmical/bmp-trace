@@ -13,19 +13,62 @@ use std::io::{Read, Seek, Write};
 /// Bitmap data.
 ///
 /// Corresponds to `potrace_bitmap_t` in Potrace.
-#[derive(Clone)]
 pub struct Bitmap {
-    pub(crate) width: usize,           // int w
-    pub(crate) height: usize,          // int h
-    pub(crate) dy: usize,              // int dy
-    pub(crate) raw_words: Box<[Word]>, // potrace_word* map
+    pub(crate) width: usize,   // int w
+    pub(crate) height: usize,  // int h
+    pub(crate) dy: isize,      // int dy
+    pub(crate) ptr: *mut Word, // potrace_word* map
 }
 
+// TODO: untangle the mess here
 impl Bitmap {
     pub fn try_new(width: usize, height: usize) -> Result<Self, ()> {
-        let dy = if width == 0 { 0 } else { (width - 1) / Word::BITS + 1 };
-        let raw_words = util::alloc_default_slice(dy * height)?;
-        Ok(Self { width, height, dy, raw_words })
+        let dy = width.div_ceil(Word::BITS);
+        let ptr = Box::into_raw(util::alloc_default_slice::<Word>(dy * height)?).cast();
+        Ok(Self { width, height, dy: dy as isize, ptr })
+    }
+
+    pub fn len(&self) -> usize {
+        self.dy.unsigned_abs() * self.height
+    }
+    fn as_raw_slice(&self) -> &[Word] {
+        let ptr = if self.dy >= 0 || self.height == 0 {
+            self.ptr.cast_const()
+        } else {
+            self.ptr.cast_const().wrapping_offset((self.height - 1) as isize * self.dy)
+        };
+        unsafe { std::slice::from_raw_parts(ptr, self.len()) }
+    }
+    fn take_boxed_slice(&mut self) -> Box<[Word]> {
+        let boxed = unsafe { Box::from_raw((&raw const *self.as_raw_slice()).cast_mut()) };
+        self.ptr = std::ptr::dangling_mut();
+        self.height = 0;
+        boxed
+    }
+
+    pub fn try_clone(&self) -> Result<Self, ()> {
+        let mut boxed = util::alloc_uninit_slice::<Word>(self.len())?;
+        boxed.write_copy_of_slice(self.as_raw_slice());
+        Ok(Self { ptr: Box::into_raw(boxed).cast(), ..*self })
+    }
+
+    pub fn try_resize(&mut self, new_height: usize) -> Result<(), ()> {
+        let old_words = self.take_boxed_slice();
+
+        let mut new_words = Vec::new();
+        new_words.try_reserve_exact(self.dy.unsigned_abs() * new_height).or(Err(()))?;
+        new_words.extend_from_slice(&old_words[..new_words.capacity()]);
+
+        self.ptr = Box::into_raw(new_words.into_boxed_slice()).cast();
+        self.height = new_height;
+        drop(old_words);
+
+        Ok(())
+    }
+
+    pub fn flip(&mut self) {
+        self.ptr = self.ptr.wrapping_offset((self.height as isize - 1) * self.dy);
+        self.dy = -self.dy;
     }
 
     pub fn read_from<R: Read + Seek>(reader: R, threshold: f64) -> Result<Self, ReadError> {
@@ -40,54 +83,29 @@ impl Bitmap {
         w.write(self)
     }
 
-    pub fn resize(&mut self, new_height: usize) -> Result<(), ()> {
-        let dy = if self.width == 0 { 0 } else { (self.width - 1) / Word::BITS + 1 };
-        let mut new_words = Vec::new();
-
-        new_words.try_reserve_exact(dy * new_height).or(Err(()))?;
-        let src = &self.raw_words[..new_words.len()];
-        new_words.spare_capacity_mut().write_copy_of_slice(src);
-
-        self.raw_words = new_words.into_boxed_slice();
-
-        Ok(())
-    }
-    pub fn flip(&mut self) {
-        // TODO: words_per_scanline is unsigned atm, so bitmap flip in expensive
-        self.raw_words.reverse();
-    }
-
-    /// Returns a scanline at specified Y index.
-    ///
-    /// Corresponds to `bm_scanline(bm, y)` in Potrace.
-    #[inline(always)]
-    pub fn scanline(&self, y: usize) -> Option<&Scanline> {
-        let word_offset = y * self.dy;
-        let line = self.raw_words.get(word_offset..word_offset + self.dy)?;
-        Some(Scanline::new(line))
-    }
-    /// Returns a scanline at specified Y index.
-    ///
-    /// Corresponds to `bm_scanline(bm, y)` in Potrace.
-    #[inline(always)]
-    pub fn scanline_mut(&mut self, y: usize) -> Option<&mut Scanline> {
-        let word_offset = y * self.dy;
-        let line = self.raw_words.get_mut(word_offset..word_offset + self.dy)?;
-        Some(Scanline::new_mut(line))
-    }
     /// Returns the word at specified X and Y coordinates.
     ///
     /// Corresponds to `bm_index(bm, x, y)` in Potrace.
     #[inline(always)]
     pub fn word(&self, x: usize, y: usize) -> Option<&Word> {
-        self.scanline(y)?.word(x)
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        Some(unsafe {
+            &*self.ptr.wrapping_offset(y as isize * self.dy).wrapping_add(x / Word::BITS)
+        })
     }
     /// Returns the word at specified X and Y coordinates.
     ///
     /// Corresponds to `bm_index(bm, x, y)` in Potrace.
     #[inline(always)]
     pub fn word_mut(&mut self, x: usize, y: usize) -> Option<&mut Word> {
-        self.scanline_mut(y)?.word_mut(x)
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        Some(unsafe {
+            &mut *self.ptr.wrapping_offset(y as isize * self.dy).wrapping_add(x / Word::BITS)
+        })
     }
 
     /// Returns the value of a pixel at X and Y coordinates.
@@ -97,50 +115,30 @@ impl Bitmap {
     pub fn get(&self, x: usize, y: usize) -> Option<bool> {
         Some(self.word(x, y)?.get(x))
     }
+    /// Tries to set the value of a pixel at X coordinate to specified value.
+    ///
+    /// Corresponds to `BM_PUT(bm, x, y, b)` in Potrace.
+    #[inline(always)]
+    pub fn try_put(&mut self, x: usize, y: usize, b: bool) {
+        self.word_mut(x, y).map(|w| w.put(x, b));
+    }
     /// Sets the value of a pixel at X coordinate to specified value.
     ///
-    /// Corresponds to `BM_PUT(bm, x, y)` in Potrace.
+    /// Corresponds to `BM_UPUT(bm, x, y, b)` in Potrace.
     #[inline(always)]
     pub unsafe fn put_unchecked(&mut self, x: usize, y: usize, b: bool) {
-        debug_assert!(self.word(x, y).is_some());
         unsafe { self.word_mut(x, y).unwrap_unchecked() }.put(x, b);
     }
 }
 
-/// A read-only reference to a slice of Potrace words, representing a bitmap row.
-///
-/// Corresponds to `potrace_word_t*` in Potrace.
-#[repr(transparent)]
-pub struct Scanline([Word]);
-
-impl Scanline {
-    pub const fn new(raw_words: &[Word]) -> &Self {
-        unsafe { &*(raw_words as *const [Word] as *const Self) }
+impl Drop for Bitmap {
+    fn drop(&mut self) {
+        drop(self.take_boxed_slice());
     }
-    pub const fn new_mut(raw_words: &mut [Word]) -> &mut Self {
-        unsafe { &mut *(raw_words as *mut [Word] as *mut Self) }
-    }
-
-    /// Returns the word at specified X coordinate.
-    ///
-    /// Corresponds to `bm_index(bm, x, y)` in Potrace.
-    #[inline(always)]
-    pub fn word(&self, x: usize) -> Option<&Word> {
-        self.0.get(x / Word::BITS)
-    }
-    /// Returns the word at specified X coordinate.
-    ///
-    /// Corresponds to `bm_index(bm, x, y)` in Potrace.
-    #[inline(always)]
-    pub fn word_mut(&mut self, x: usize) -> Option<&mut Word> {
-        self.0.get_mut(x / Word::BITS)
-    }
-    /// Returns the value of a pixel at X coordinate.
-    ///
-    /// Corresponds to `BM_GET(bm, x, y)` in Potrace.
-    #[inline(always)]
-    pub fn get(&self, x: usize) -> Option<bool> {
-        Some(self.word(x)?.get(x))
+}
+impl Clone for Bitmap {
+    fn clone(&self) -> Self {
+        self.try_clone().unwrap()
     }
 }
 
@@ -148,8 +146,10 @@ impl Scanline {
 ///
 /// Corresponds to `potrace_word` in Potrace.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Word(pub usize);
+pub struct Word(pub u32);
 
+// TODO: Is there even any point in this struct? It's just a low-level implementation detail.
+// TODO: Should words even be u32 or usize? Why not u8? Will need to benchmark different sizes.
 impl Word {
     /// The size of [`Word`], in bytes.
     ///
@@ -162,11 +162,11 @@ impl Word {
     /// The [`Word`] with the highest bit set.
     ///
     /// Corresponds to `BM_HIBIT` in Potrace.
-    pub const HIGH_BIT: Self = Self(isize::MIN as usize);
+    pub const HIGH_BIT: Self = Self(i32::MIN.cast_unsigned());
     /// The [`Word`] with all bits set.
     ///
     /// Corresponds to `BM_ALLBITS` in Potrace.
-    pub const ALL_BITS: Self = Self(usize::MAX);
+    pub const ALL_BITS: Self = Self(u32::MAX);
 
     /// Gets the bit-mask for the specified X coordinate.
     ///
@@ -207,7 +207,7 @@ impl Word {
     }
     /// Sets the value of a pixel at X coordinate to specified value.
     ///
-    /// Corresponds to `BM_PUT(bm, x, y)` in Potrace.
+    /// Corresponds to `BM_PUT(bm, x, y, b)` in Potrace.
     #[inline(always)]
     pub const fn put(&mut self, x: usize, b: bool) {
         if b { self.set(x) } else { self.clear(x) }
