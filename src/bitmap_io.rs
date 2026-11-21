@@ -366,8 +366,8 @@ impl<R: Read + Seek> BmpReader<R> {
 
         /* color table, present only if bmpinfo.bits <= 8. */
         if bmpinfo.bits <= 8 {
-            coltable =
-                util::alloc_zeroed::<bool>(bmpinfo.n_colors as usize).or(Err(ReadError::Alloc))?;
+            coltable = util::alloc_default_slice::<bool>(bmpinfo.n_colors as usize)
+                .or(Err(ReadError::Alloc))?;
             /* NOTE: since we are reading a bitmap, we can immediately convert
             the color table entries to bits. */
             let maxthres = (3.0 * 255.0 * threshold) as u32;

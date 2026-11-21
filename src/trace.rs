@@ -8,7 +8,6 @@
  */
 
 use crate::{Curve, DPoint, Path, PathTreeList, Point, SegmentTag, Sums, util};
-use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Params {
@@ -17,7 +16,6 @@ pub struct Params {
     pub alpha_max: f64,
     pub opt_curves: bool,
     pub opt_tolerance: f64,
-    // TODO: progress callback
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,53 +29,62 @@ pub enum TurnPolicy {
     Random = 6,
 }
 
-// TODO: progress param?
-pub fn process_path(plist: &mut PathTreeList, param: &Params) -> Result<(), ()> {
-    let nn = 0.0;
-    let cn = 0.0;
-
-    // TODO:
-
-    //   if (progress->callback) {
-    //     /* precompute task size for progress estimates */
-    //     nn = 0;
-    //     list_forall (p, plist) {
-    //       nn += p->priv->len;
-    //     }
-    //     cn = 0;
-    //   }
+pub fn process_path_list(
+    plist: &mut PathTreeList,
+    params: &Params,
+    mut progress: Option<&mut dyn FnMut(f64)>,
+) -> Result<(), ()> {
+    let total_progress = {
+        if progress.is_some() {
+            /* precompute task size for progress estimates */
+            let mut p = &*plist;
+            let mut sum = 0;
+            loop {
+                sum += p.private.len();
+                if let Some(next) = &p.next { p = next } else { break }
+            }
+            sum as f64
+        } else {
+            0.0
+        }
+    };
 
     /* call downstream function with each path */
-    let mut next = Some(plist);
-    while let Some(p) = next {
-        calc_sums(&mut p.private)?;
-        calc_lon(&mut p.private)?;
-        best_polygon(&mut p.private)?;
-        adjust_vertices(&mut p.private)?;
+    let mut cur_progress = 0.0;
+    let mut p = plist;
+    loop {
+        process_path(&mut p.private, params, p.is_negative)?;
 
-        if p.sign == b'-' as isize {
-            /* reverse orientation of negative paths */
-            p.private.curve.segments.reverse();
-        }
-        smooth(&mut p.private.curve, param.alpha_max);
-
-        if param.opt_curves {
-            opticurve(&mut p.private, param.opt_tolerance)?;
+        if let Some(progress) = progress.as_mut() {
+            cur_progress += p.private.len() as f64;
+            progress(cur_progress / total_progress);
         }
 
-        // TODO: p.private.fcurve().copy_structure_to(&mut p.curve)
-
-        // TODO:
-        // if (progress->callback) {
-        //   cn += p->priv->len;
-        //   progress_update(cn/nn, progress);
-        // }
-
-        next = p.next.as_mut().and_then(Rc::get_mut);
+        if let Some(next) = &mut p.next { p = next } else { break }
     }
 
-    // TODO:
-    //   progress_update(1.0, progress);
+    if let Some(progress) = progress {
+        progress(1.0);
+    }
+
+    Ok(())
+}
+
+pub fn process_path(p: &mut Path, params: &Params, negative: bool) -> Result<(), ()> {
+    calc_sums(p)?;
+    calc_lon(p)?;
+    best_polygon(p)?;
+    adjust_vertices(p)?;
+
+    if negative {
+        /* reverse orientation of negative paths */
+        p.curve.segments.reverse();
+    }
+    smooth(&mut p.curve, params.alpha_max);
+
+    if params.opt_curves {
+        opticurve(p, params.opt_tolerance)?;
+    }
 
     Ok(())
 }
@@ -85,21 +92,22 @@ pub fn process_path(plist: &mut PathTreeList, param: &Params) -> Result<(), ()> 
 /// Preparation: fill in the sum* fields of a path (used for later rapid summing).
 fn calc_sums(pp: &mut Path) -> Result<(), ()> {
     let points = &*pp.pt;
-    pp.sums = util::alloc_zeroed::<Sums>(points.len() + 1)?;
-    let sums = &mut *pp.sums;
 
     /* origin */
     let origin = points[0];
     pp.p0 = origin;
 
+    let mut sums = Vec::new();
+    sums.try_reserve_exact(points.len() + 1).or(Err(()))?;
+
     /* preparatory computation for later fast summing */
     let mut acc = Sums::default();
-    sums[0] = acc;
+    sums.push(acc);
 
-    for (i, pt) in points.iter().enumerate() {
+    sums.extend(points.iter().map(|pt| {
         acc += DPoint::from(*pt - origin);
-        sums[i + 1] = acc;
-    }
+        acc
+    }));
 
     Ok(())
 }
@@ -141,8 +149,9 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
     let points = &*pp.pt;
     let n = points.len();
 
-    let mut pivk = util::alloc_zeroed::<usize>(n)?;
-    let mut nc = util::alloc_zeroed::<usize>(n)?;
+    let mut pivk = util::alloc_uninit_slice(n)?;
+    let mut nc = util::alloc_uninit_slice(n)?;
+    let mut lon = util::alloc_uninit_slice(n)?;
 
     /* initialize the nc data structure. Point from each point to the
     furthest future point to which it is connected by a vertical or
@@ -154,15 +163,16 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
     let mut k = 0;
     let mut k_pt = points[k];
 
-    for (i, point) in points.iter().enumerate().rev() {
-        if *point != k_pt {
+    for (i, pt) in points.iter().enumerate().rev() {
+        if pt.x != k_pt.x && pt.y != k_pt.y {
             k = i + 1; /* necessarily i<n-1 in this case */
             k_pt = points[k];
         }
-        nc[i] = k;
+        nc[i].write(k);
     }
 
-    pp.lon = util::alloc_zeroed(n)?;
+    // SAFETY: All values in nc were written to in the loop above
+    let nc = unsafe { nc.assume_init() };
 
     /* determine pivot points: for each i, let pivk[i] be the furthest k
     such that all j with i<j<k lie on a line connecting i,k. */
@@ -188,7 +198,7 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
 
             /* if all four "directions" have occurred, cut this path */
             if ct[0] != 0 && ct[1] != 0 && ct[2] != 0 && ct[3] != 0 {
-                pivk[i] = k1;
+                pivk[i].write(k1);
                 break false;
             }
 
@@ -247,23 +257,26 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
             if d > 0 {
                 j = j.min(floor_div(-c, d));
             }
-            pivk[i] = (k1 as isize + j).rem_euclid(n as isize) as usize;
+            pivk[i].write((k1 as isize + j).rem_euclid(n as isize) as usize);
         }
     } /* for i */
+
+    // SAFETY: All values in pivk were written to in the loop above
+    let pivk = unsafe { pivk.assume_init() };
 
     /* clean up: for each i, let lon[i] be the largest k such that for
     all i' with i<=i'<k, i'<k<=pivk[i']. */
 
-    let lon = &mut *pp.lon;
-
     let mut j = pivk[n - 1];
-    lon[n - 1] = j;
+    lon[n - 1].write(j);
     for i in (0..n - 1).rev() {
         if cyclic(i + 1, pivk[i], j) {
             j = pivk[i];
         }
-        lon[i] = j;
+        lon[i].write(j);
     }
+
+    let mut lon = unsafe { lon.assume_init() };
 
     for i in (0..n).rev() {
         if !cyclic((i + 1).rem_euclid(n), j, lon[i]) {
@@ -271,6 +284,8 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
         }
         lon[i] = j;
     }
+
+    pp.lon = lon;
 
     Ok(())
 }
@@ -282,24 +297,27 @@ fn calc_lon(pp: &mut Path) -> Result<(), ()> {
 /// FIXME: implement cyclic version.
 ///
 fn best_polygon(pp: &mut Path) -> Result<(), ()> {
-    let n = pp.pt.len();
+    let n = pp.len();
 
-    let mut penalties = util::alloc_zeroed::<f64>(n + 1)?;
-    let mut prev = util::alloc_zeroed::<usize>(n + 1)?;
-    let mut clip0 = util::alloc_zeroed::<usize>(n)?;
-    let mut clip1 = util::alloc_zeroed::<usize>(n + 1)?;
-    let mut seg0 = util::alloc_zeroed::<usize>(n + 1)?;
-    let mut seg1 = util::alloc_zeroed::<usize>(n + 1)?;
+    let mut penalties = util::alloc_default_slice::<f64>(n + 1)?;
+    let mut prev = util::alloc_default_slice::<usize>(n + 1)?;
+    let mut clip1 = util::alloc_default_slice::<usize>(n + 1)?;
+    let mut seg0 = util::alloc_default_slice::<usize>(n + 1)?;
+    let mut seg1 = util::alloc_default_slice::<usize>(n + 1)?;
+    let mut clip0 = util::alloc_uninit_slice::<usize>(n)?;
 
     /* calculate clipped paths */
     let lon = &*pp.lon;
-    for i in 0..n {
+    for (i, slot) in clip0.iter_mut().enumerate() {
         let mut c = (lon[(i - 1).rem_euclid(n)] - 1).rem_euclid(n);
         if c == i {
             c = (i + 1).rem_euclid(n);
         }
-        clip0[i] = if c < i { n } else { c };
+        slot.write(if c < i { n } else { c });
     }
+
+    // SAFETY: All values in clip0 were written to in the loop above
+    let clip0 = unsafe { clip0.assume_init() };
 
     /* calculate backwards path clipping, non-cyclic. j <= clip0[i] iff
     clip1[j] <= i, for i,j=0..n. */
@@ -313,9 +331,11 @@ fn best_polygon(pp: &mut Path) -> Result<(), ()> {
 
     /* calculate seg0[j] = longest path from 0 with j segments */
     let mut i = 0;
-    for j in 0..n {
+    let mut j = 0;
+    while i < n {
         seg0[j] = i;
         i = clip0[i];
+        j += 1;
     }
     seg0[j] = n;
     let m = j;
@@ -334,11 +354,14 @@ fn best_polygon(pp: &mut Path) -> Result<(), ()> {
     close to linear since the inner loop tends to be short. */
     penalties[0] = 0.0;
 
+    let points = &*pp.pt;
+    let sums = &*pp.sums;
+
     for j in 1..=m {
         for i in seg1[j]..=seg0[j] {
             let mut best = -1.0;
             for k in (clip1[i]..=seg0[j - 1]).rev() {
-                let this_penalty = penalty3(pp, k, i) + penalties[k];
+                let this_penalty = penalty3(points, sums, k, i) + penalties[k];
                 if best < 0.0 || this_penalty < best {
                     prev[i] = k;
                     best = this_penalty;
@@ -348,7 +371,7 @@ fn best_polygon(pp: &mut Path) -> Result<(), ()> {
         }
     }
 
-    let mut polygons = util::alloc_zeroed(m)?;
+    let mut polygons = util::alloc_default_slice::<usize>(m)?;
 
     /* read off shortest path */
     let mut i = n;
@@ -366,33 +389,30 @@ fn best_polygon(pp: &mut Path) -> Result<(), ()> {
 /// Auxiliary function: calculate the penalty of an edge from i to j in the given path.
 /// This needs the "lon" and "sum*" data.
 ///
-fn penalty3(pp: &mut Path, i: usize, mut j: usize) -> f64 {
-    let points = &*pp.pt;
-    let sums = &*pp.sums;
+fn penalty3(points: &[Point], sums: &[Sums], i: usize, mut j: usize) -> f64 {
     let n = points.len();
 
     debug_assert!(i < j && j <= n); /* assume 0<=i<j<=n  */
 
     let k = (j + 1 - i) as f64;
 
-    let s = if j >= n {
+    let sum = if j >= n {
         j -= n;
         sums[j + 1] - sums[i] + sums[n]
     } else {
         sums[j + 1] - sums[i]
     };
 
-    let p = DPoint::from((points[i] + points[j]) / 2 - points[0]);
-    let ey = (points[j].x - points[i].x) as f64;
-    let ex = -(points[j].y - points[i].y) as f64;
+    let p = DPoint::from(points[i] + points[j]) / 2.0 - DPoint::from(points[0]);
+    let e = DPoint::from(points[j] - points[i]);
 
-    let a = (s.x2 - 2.0 * s.x * p.x) / k + p.x * p.x;
-    let b = (s.xy - s.x * p.y - s.y * p.x) / k + p.x * p.y;
-    let c = (s.y2 - 2.0 * s.y * p.y) / k + p.y * p.y;
+    let a = (sum.x2 - 2.0 * sum.x * p.x) / k + p.x * p.x;
+    let b = (sum.xy - sum.x * p.y - sum.y * p.x) / k + p.x * p.y;
+    let c = (sum.y2 - 2.0 * sum.y * p.y) / k + p.y * p.y;
 
-    let score = ex * ex * a + 2.0 * ex * ey * b + ey * ey * c;
+    let s = e.y * e.y * a - 2.0 * e.y * e.x * b + e.x * e.x * c;
 
-    score.sqrt()
+    s.sqrt()
 }
 
 pub type QuadForm = [[f64; 3]; 3];
@@ -410,13 +430,13 @@ fn quadform(q: QuadForm, w: DPoint) -> f64 {
 }
 
 fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
-    let n = pp.pt.len();
+    let n = pp.len();
     let m = pp.po.len();
     let origin = DPoint::from(pp.p0);
 
-    let mut ctr = util::alloc_zeroed::<DPoint>(m)?;
-    let mut dir = util::alloc_zeroed::<DPoint>(m)?;
-    let mut q = util::alloc_zeroed::<QuadForm>(m)?;
+    let mut ctr = util::alloc_default_slice::<DPoint>(m)?;
+    let mut dir = util::alloc_default_slice::<DPoint>(m)?;
+    let mut q = util::alloc_default_slice::<QuadForm>(m)?;
 
     pp.curve.init(m)?;
 
@@ -425,11 +445,10 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     for i in 0..m {
         let j = pp.po[(i + 1).rem_euclid(m)];
         let j = ((j - pp.po[i]).rem_euclid(n)) + pp.po[i];
-        point_slope(pp, pp.po[i] as isize, j as isize, &mut ctr[i], &mut dir[i]);
+        let (ctr_i, dir_i) = point_slope(pp, pp.po[i] as isize, j as isize);
+        ctr[i] = ctr_i;
+        dir[i] = dir_i;
     }
-
-    let po = &*pp.po;
-    let pt = &*pp.pt;
 
     let mut v = [0.0; 3];
     /* represent each line segment as a singular quadratic form; the
@@ -451,6 +470,9 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
             }
         }
     }
+
+    let po = &*pp.po;
+    let pt = &*pp.pt;
 
     /* now calculate the "intersections" of consecutive segments.
     Instead of using the actual intersection, we find the point
@@ -563,7 +585,7 @@ fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     Ok(())
 }
 
-fn point_slope(path: &mut Path, mut i: isize, mut j: isize, ctr: &mut DPoint, dir: &mut DPoint) {
+fn point_slope(path: &mut Path, mut i: isize, mut j: isize) -> (DPoint, DPoint) {
     /* assume i < j */
 
     let n = path.pt.len() as isize;
@@ -603,7 +625,7 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize, ctr: &mut DPoint, di
     let xy = sums[j + 1].xy - sums[i].xy + r * sums[n].xy;
     let y2 = sums[j + 1].y2 - sums[i].y2 + r * sums[n].y2;
 
-    *ctr = DPoint::new(x, y) / k;
+    let ctr = DPoint::new(x, y) / k;
 
     let mut a = (x2 - x * x / k) / k;
     let b = (xy - x * y / k) / k;
@@ -615,21 +637,22 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize, ctr: &mut DPoint, di
     a -= lambda2;
     c -= lambda2;
 
-    let l;
+    /* sometimes this can happen when k=4: the two eigenvalues coincide */
+    let mut dir = DPoint::ZERO;
+
     if a.abs() >= c.abs() {
-        l = (a * a + b * b).sqrt();
+        let l = (a * a + b * b).sqrt();
         if l != 0.0 {
-            *dir = DPoint::new(-b, a) / l;
+            dir = DPoint::new(-b, a) / l;
         }
     } else {
-        l = (c * c + b * b).sqrt();
+        let l = (c * c + b * b).sqrt();
         if l != 0.0 {
-            *dir = DPoint::new(-c, b) / l;
+            dir = DPoint::new(-c, b) / l;
         }
     }
-    if l == 0.0 {
-        *dir = DPoint::ZERO; /* sometimes this can happen when k=4: the two eigenvalues coincide */
-    }
+
+    (ctr, dir)
 }
 
 /// Stage 4: smoothing and corner analysis (Sec. 2.3.3).
@@ -687,12 +710,12 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
     let m = pp.curve.segments.len();
     let seg = &*pp.curve.segments;
 
-    let mut pt = util::alloc_zeroed::<isize>(m + 1)?;
-    let mut pen = util::alloc_zeroed::<f64>(m + 1)?;
-    let mut len = util::alloc_zeroed::<usize>(m + 1)?;
-    let mut opt = util::alloc_zeroed::<OptiPenalty>(m + 1)?;
-    let mut convc = util::alloc_zeroed::<isize>(m)?;
-    let mut areac = util::alloc_zeroed::<f64>(m + 1)?;
+    let mut pt = util::alloc_default_slice::<isize>(m + 1)?;
+    let mut pen = util::alloc_default_slice::<f64>(m + 1)?;
+    let mut len = util::alloc_default_slice::<usize>(m + 1)?;
+    let mut opt = util::alloc_default_slice::<OptiPenalty>(m + 1)?;
+    let mut convc = util::alloc_default_slice::<isize>(m)?;
+    let mut areac = util::alloc_default_slice::<f64>(m + 1)?;
 
     /* pre-calculate convexity: +1 = right turn, -1 = left turn, 0 = corner */
     for i in 0..m {
@@ -753,8 +776,8 @@ fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
     let seg = &*pp.curve.segments;
     let oseg = &mut *pp.ocurve.segments;
 
-    let mut s = util::alloc_zeroed::<f64>(om)?;
-    let mut t = util::alloc_zeroed::<f64>(om)?;
+    let mut s = util::alloc_default_slice::<f64>(om)?;
+    let mut t = util::alloc_default_slice::<f64>(om)?;
 
     let mut j = m;
     for i in (0..om).rev() {

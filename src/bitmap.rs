@@ -24,7 +24,7 @@ pub struct Bitmap {
 impl Bitmap {
     pub fn try_new(width: usize, height: usize) -> Result<Self, ()> {
         let dy = if width == 0 { 0 } else { (width - 1) / Word::BITS + 1 };
-        let raw_words = util::alloc_zeroed(dy * height)?;
+        let raw_words = util::alloc_default_slice(dy * height)?;
         Ok(Self { width, height, dy, raw_words })
     }
 

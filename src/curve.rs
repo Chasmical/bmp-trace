@@ -46,7 +46,7 @@ impl Curve {
     ///
     /// Corresponds to `int privcurve_init(privcurve_t*, int)` in Potrace.
     pub(crate) fn init(&mut self, len: usize) -> Result<(), ()> {
-        self.segments = util::alloc_zeroed(len)?;
+        self.segments = util::alloc_default_slice(len)?;
         Ok(())
     }
 }
@@ -114,8 +114,15 @@ pub struct Path {
 }
 
 impl Path {
+    pub const fn len(&self) -> usize {
+        self.pt.len()
+    }
     #[inline(always)]
-    pub const fn fcurve(&mut self) -> &mut Curve {
+    pub const fn fcurve(&self) -> &Curve {
+        if !self.ocurve.segments.is_empty() { &self.ocurve } else { &self.curve }
+    }
+    #[inline(always)]
+    pub const fn fcurve_mut(&mut self) -> &mut Curve {
         if !self.ocurve.segments.is_empty() { &mut self.ocurve } else { &mut self.curve }
     }
 }
@@ -125,10 +132,15 @@ impl Path {
 /// Corresponds to `potrace_path_t` in Potrace.
 pub struct PathTreeList {
     pub(crate) area: usize,                         // int area
-    pub(crate) sign: isize,                         // int sign
-    pub(crate) curve: Curve,                        // potrace_curve_t curve
-    pub(crate) next: Option<Rc<PathTreeList>>,      // potrace_path_s* next
+    pub(crate) is_negative: bool,                   // int sign
+    pub(crate) next: Option<Box<PathTreeList>>,     // potrace_path_s* next
     pub(crate) childlist: Option<Rc<PathTreeList>>, // potrace_path_s* childlist
     pub(crate) sibling: Option<Rc<PathTreeList>>,   // potrace_path_s* sibling
     pub(crate) private: Box<Path>,                  // potrace_privpath_s* priv
+}
+
+impl PathTreeList {
+    pub const fn curve(&self) -> &Curve {
+        self.private.fcurve()
+    }
 }
