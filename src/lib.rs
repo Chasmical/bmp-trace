@@ -14,15 +14,13 @@
 mod bitmap;
 mod bitmap_io;
 mod curve;
-mod decompose;
 mod point;
-mod trace;
+mod tracing;
 
 pub use bitmap::*;
 pub use bitmap_io::*;
 pub use curve::*;
-pub use decompose::*;
 pub use point::*;
-pub use trace::*;
+pub use tracing::*;
 
 mod util;

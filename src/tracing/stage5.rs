@@ -1,0 +1,290 @@
+/*
+ * Copyright (C) 2001-2019 Peter Selinger
+ * Copyright (C) 2026 Chasmical
+ *
+ * Adapted and modified for Rust from the original project Potrace.
+ * This file is part of bmp-trace and is licensed under GNU GPLv2.
+ * See the file LICENSE for details.
+ */
+
+use crate::{DPoint, Path, SegmentTag, util};
+
+/// Stage 5: Curve optimization (Sec. 2.4).
+///
+pub fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
+    let m = pp.curve.segments.len();
+    let seg = &*pp.curve.segments;
+
+    let mut pt = util::alloc_default_slice::<isize>(m + 1)?;
+    let mut pen = util::alloc_default_slice::<f64>(m + 1)?;
+    let mut len = util::alloc_default_slice::<usize>(m + 1)?;
+    let mut opt = util::alloc_default_slice::<OptiPenalty>(m + 1)?;
+    let mut convc = util::alloc_default_slice::<isize>(m)?;
+    let mut areac = util::alloc_default_slice::<f64>(m + 1)?;
+
+    /* pre-calculate convexity: +1 = right turn, -1 = left turn, 0 = corner */
+    for i in 0..m {
+        if seg[i].tag == SegmentTag::CurveTo {
+            convc[i] = seg[(i - 1).rem_euclid(m)]
+                .vertex
+                .dpara(seg[i].vertex, seg[(i + 1).rem_euclid(m)].vertex)
+                .signum() as isize;
+        } else {
+            convc[i] = 0;
+        }
+    }
+
+    /* pre-calculate areas */
+    let mut area = 0.0;
+    areac[0] = 0.0;
+    let p0 = seg[0].vertex;
+    for i in 0..m {
+        let i1 = (i + 1).rem_euclid(m);
+        if seg[i1].tag == SegmentTag::CurveTo {
+            let alpha = seg[i1].alpha;
+            area +=
+                0.3 * alpha * (4.0 - alpha) * seg[i].c[2].dpara(seg[i1].vertex, seg[i1].c[2]) / 2.0;
+            area += p0.dpara(seg[i].c[2], seg[i1].c[2]) / 2.0;
+        }
+        areac[i + 1] = area;
+    }
+
+    pt[0] = -1;
+    pen[0] = 0.0;
+    len[0] = 0;
+
+    /* Fixme: we always start from a fixed point -- should find the best curve cyclically */
+
+    for j in 1..=m {
+        /* calculate best path from 0 to j */
+        pt[j] = (j - 1) as isize;
+        pen[j] = pen[j - 1];
+        len[j] = len[j - 1] + 1;
+
+        for i in (0..=j - 2).rev() {
+            let r = opti_penalty(pp, i, (j).rem_euclid(m), opt_tolerance, &convc, &areac);
+            if let Ok(o) = r {
+                if len[j] > len[i] + 1 || (len[j] == len[i] + 1 && pen[j] > pen[i] + o.penalty) {
+                    pt[j] = i as isize;
+                    pen[j] = pen[i] + o.penalty;
+                    len[j] = len[i] + 1;
+                    opt[j] = o;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    let om = len[m];
+    pp.ocurve.init(om)?;
+    let seg = &*pp.curve.segments;
+    let oseg = &mut *pp.ocurve.segments;
+
+    let mut s = util::alloc_default_slice::<f64>(om)?;
+    let mut t = util::alloc_default_slice::<f64>(om)?;
+
+    let mut j = m;
+    for i in (0..om).rev() {
+        if pt[j] == (j - 1) as isize {
+            oseg[i] = seg[j.rem_euclid(m)];
+            s[i] = 1.0;
+            t[i] = 1.0;
+        } else {
+            oseg[i].tag = SegmentTag::CurveTo;
+            oseg[i].c[0] = opt[j].c[0];
+            oseg[i].c[1] = opt[j].c[1];
+
+            let j_mod = j.rem_euclid(m);
+            oseg[i].c[2] = seg[j_mod].c[2];
+            oseg[i].vertex = seg[j_mod].c[2].lerp(seg[j_mod].vertex, opt[j].s);
+            oseg[i].alpha = opt[j].alpha;
+            oseg[i].alpha0 = opt[j].alpha;
+            s[i] = opt[j].s;
+            t[i] = opt[j].t;
+        }
+        j = pt[j] as usize;
+    }
+
+    /* calculate beta parameters */
+    for i in 0..om {
+        let i1 = (i + 1).rem_euclid(om);
+        oseg[i].beta = s[i] / (s[i] + t[i1]);
+    }
+    pp.ocurve.alphacurve = true;
+
+    Ok(())
+}
+
+#[derive(Default, Clone, Copy)]
+struct OptiPenalty {
+    penalty: f64,
+    c: [DPoint; 2],
+    t: f64,
+    s: f64,
+    alpha: f64,
+}
+
+const COS179: f64 = -0.999847695156; /* the cosine of 179 degrees */
+
+/// Calculate best fit from i+.5 to j+.5.  Assume i<j (cyclically).
+/// Return Ok and set badness and parameters (alpha, beta), if possible. Return Err if impossible.
+fn opti_penalty(
+    pp: &mut Path,
+    i: usize,
+    j: usize,
+    opt_tolerance: f64,
+    convc: &[isize],
+    areac: &[f64],
+) -> Result<OptiPenalty, ()> {
+    let m = pp.curve.segments.len();
+    let seg = &*pp.curve.segments;
+
+    /* check convexity, corner-freeness, and maximum bend < 179 degrees */
+
+    if i == j {
+        /* sanity - a full loop can never be an opticurve */
+        return Err(());
+    }
+
+    let k = i;
+    let i1 = (i + 1).rem_euclid(m);
+    let mut k1 = (k + 1).rem_euclid(m);
+    let conv = convc[k1];
+    if conv == 0 {
+        return Err(());
+    }
+    let d = seg[i].vertex.distance(seg[i1].vertex);
+
+    let mut k = k1;
+
+    while k != j {
+        k1 = (k + 1).rem_euclid(m);
+        let k2 = (k + 2).rem_euclid(m);
+        if convc[k1] != conv {
+            return Err(());
+        }
+        if seg[i].vertex.cprod(seg[i1].vertex, seg[k1].vertex, seg[k2].vertex).signum() as isize
+            != conv
+        {
+            return Err(());
+        }
+        if seg[i].vertex.iprod1(seg[i1].vertex, seg[k1].vertex, seg[k2].vertex)
+            < d * seg[k1].vertex.distance(seg[k2].vertex) * COS179
+        {
+            return Err(());
+        }
+        k = k1;
+    }
+
+    /* the curve we're working in: */
+    let p0 = seg[(i).rem_euclid(m)].c[2];
+    let p1 = seg[(i + 1).rem_euclid(m)].vertex;
+    let p2 = seg[(j).rem_euclid(m)].vertex;
+    let p3 = seg[(j).rem_euclid(m)].c[2];
+
+    /* determine its area */
+    let mut area = areac[j] - areac[i];
+    area -= seg[0].vertex.dpara(seg[i].c[2], seg[j].c[2]) / 2.0;
+    if i >= j {
+        area += areac[m];
+    }
+
+    /* find intersection o of p0p1 and p2p3. Let t,s such that o =
+    interval(t,p0,p1) = interval(s,p3,p2). Let A be the area of the
+    triangle (p0,o,p3). */
+
+    let a1 = p0.dpara(p1, p2);
+    let a2 = p0.dpara(p1, p3);
+    let a3 = p0.dpara(p2, p3);
+    /* A4 = dpara(p1, p2, p3); */
+    let a4 = a1 + a3 - a2;
+
+    if a2 == a1 {
+        /* this should never happen */
+        return Err(());
+    }
+
+    let t = a3 / (a3 - a4);
+    let s = a2 / (a2 - a1);
+    let ap = a2 * t / 2.0;
+
+    if ap == 0.0 {
+        /* this should never happen */
+        return Err(());
+    }
+
+    let r = area / ap; /* relative area */
+    let alpha = 2.0 - (4.0 - r / 0.3).sqrt(); /* overall alpha for p0-o-p3 curve */
+
+    let mut res = OptiPenalty {
+        penalty: 0.0,
+        c: [p0.lerp(p1, t * alpha), p3.lerp(p2, s * alpha)],
+        alpha,
+        t,
+        s,
+    };
+
+    let p1 = res.c[0];
+    let p2 = res.c[1]; /* the proposed curve is now (p0,p1,p2,p3) */
+
+    /* calculate penalty */
+    /* check tangency with edges */
+    let mut k = (i + 1).rem_euclid(m);
+    while k != j {
+        k1 = (k + 1).rem_euclid(m);
+        let t = p0.tangent(p1, p2, p3, seg[k].vertex, seg[k1].vertex);
+        if t < -0.5 {
+            return Err(());
+        }
+        let pt = DPoint::bezier(t, p0, p1, p2, p3);
+        let d = seg[k].vertex.distance(seg[k1].vertex);
+        if d == 0.0 {
+            /* this should never happen */
+            return Err(());
+        }
+        let d1 = seg[k].vertex.dpara(seg[k1].vertex, pt) / d;
+        if d1.abs() > opt_tolerance {
+            return Err(());
+        }
+        if seg[k].vertex.iprod(seg[k1].vertex, pt) < 0.0
+            || seg[k1].vertex.iprod(seg[k].vertex, pt) < 0.0
+        {
+            return Err(());
+        }
+        res.penalty += d1.powi(2);
+        k = k1;
+    }
+
+    /* check corners */
+    let mut k = i;
+    while k != j {
+        k1 = (k + 1).rem_euclid(m);
+        let t = p0.tangent(p1, p2, p3, seg[k].c[2], seg[k1].c[2]);
+        if t < -0.5 {
+            return Err(());
+        }
+        let pt = DPoint::bezier(t, p0, p1, p2, p3);
+        let d = seg[k].c[2].distance(seg[k1].c[2]);
+        if d == 0.0 {
+            /* this should never happen */
+            return Err(());
+        }
+        let mut d1 = seg[k].c[2].dpara(seg[k1].c[2], pt) / d;
+        let mut d2 = seg[k].c[2].dpara(seg[k1].c[2], seg[k1].vertex) / d;
+        d2 *= 0.75 * seg[k1].alpha;
+        if d2 < 0.0 {
+            d1 = -d1;
+            d2 = -d2;
+        }
+        if d1 < d2 - opt_tolerance {
+            return Err(());
+        }
+        if d1 < d2 {
+            res.penalty += (d1 - d2).powi(2);
+        }
+        k = k1;
+    }
+
+    Ok(res)
+}
