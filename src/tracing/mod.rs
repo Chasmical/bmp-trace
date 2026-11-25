@@ -35,19 +35,30 @@ pub enum TurnPolicy {
     Random = 6,
 }
 
+impl Default for Params {
+    fn default() -> Self {
+        Self {
+            turd_size: 2,
+            turn_policy: TurnPolicy::Minority,
+            alpha_max: 1.0,
+            opt_tolerance: Some(0.2),
+        }
+    }
+}
+
 // Process tree:
 //
-//                    preparation
-//      decomposition   stage 1    stage 2     stage 3     stage 4+5
-//            ┊            ┊          ┊           ┊            ┊
-//            ┊  ┌──────┐  ┊          ┊           ┊  ┌───────┐ ┊  ┌────────┐
-//            ┊  │ pt   │─┬─>─────────┬─>─────────┬─>│ curve │─┬─>│ ocurve │
-// ┌────────┐ ┊  ├──────┤ │  ┌──────┐ │  ┌──────┐ │  └───────┘ │  └────────┘
-// │ bitmap │───>│ area │ ├─>│ sums │─┴─>│ po   │─┘            │
-// └────────┘    ├──────┤ │  ├──────┤    └──────┘              │
-//               │ sign │ └─>│ lon  │──────^                   │
-//               └──────┘    └──────┘                          │
-//                   └─>───────────────────────────────────────┘
+//                      preparation
+//      decomposition     stage 1    stage 2       stage 3     stage 4+5
+//            ┊              ┊          ┊             ┊            ┊
+//            ┊  ┌────────┐  ┊          ┊             ┊  ┌───────┐ ┊  ┌───────────┐
+//            ┊  │ points │─┬─>─────────┬─>───────────┬─>│ curve │─┬─>│ opt_curve │
+// ┌────────┐ ┊  ├────────┤ │  ┌──────┐ │  ┌────────┐ │  └───────┘ │  └───────────┘
+// │ bitmap │───>│ area   │ ├─>│ sums │─┴─>│polygons│─┘            │
+// └────────┘    ├────────┤ │  ├──────┤    └────────┘              │
+//               │ sign   │ └─>│ lon  │──────^                     │
+//               └────────┘    └──────┘                            │
+//                   └───>─────────────────────────────────────────┘
 
 pub fn trace(
     bm: &Bitmap,
@@ -57,16 +68,16 @@ pub fn trace(
     let sub_progress: Option<&mut dyn FnMut(f64)> = {
         if let Some(progress) = progress.as_mut() { Some(&mut |x| progress(x * 0.1)) } else { None }
     };
-    let mut paths = decomposition::bm_to_path_list(bm, params, sub_progress)?;
+    let mut paths = decomposition::bm_to_path_list(bm, &params, sub_progress)?;
 
-    let total_progress = paths.iter().map(|x| x.pt.len()).sum::<usize>() as f64;
+    let total_progress = paths.iter().map(|x| x.points.len()).sum::<usize>() as f64;
 
     let mut cur_progress = 0.0;
     for path in &mut paths {
-        path.curve = process_path(&path.pt, path.is_negative, params)?;
+        path.curve = process_path(&path.points, path.is_negative, &params)?;
 
         if let Some(progress) = progress.as_mut() {
-            cur_progress += path.pt.len() as f64;
+            cur_progress += path.points.len() as f64;
             progress(cur_progress / total_progress);
         }
     }
@@ -74,14 +85,14 @@ pub fn trace(
     Ok(paths)
 }
 
-fn process_path(pt: &[Point<isize>], is_negative: bool, params: Params) -> Result<Curve, ()> {
-    let sums = preparation::calculate_sums(pt)?;
-    let lon = stage1::calculate_longest_subpaths(pt)?;
-    let po = stage2::calculate_optimal_polygon(pt, &sums, &lon)?;
-    let mut curve = stage3::adjust_vertices(pt, &sums, &po)?;
+fn process_path(points: &[Point<isize>], is_negative: bool, params: &Params) -> Result<Curve, ()> {
+    let sums = preparation::calculate_sums(points)?;
+    let longest = stage1::calculate_straight_subpaths(points)?;
+    let polygons = stage2::calculate_optimal_polygon(points, &sums, &longest)?;
+    let mut curve = stage3::adjust_vertices(points, &sums, &polygons)?;
 
     if is_negative {
-        /* reverse orientation of negative paths */
+        // Reverse orientation of negative paths
         curve.segments.reverse();
     }
     stage4::smooth_curve(&mut curve, params.alpha_max);

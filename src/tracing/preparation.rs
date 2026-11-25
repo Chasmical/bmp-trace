@@ -9,18 +9,20 @@
 
 use crate::{Point, Sums};
 
-/// Preparation: fill in the sum* fields of a path (used for later rapid summing).
+/// Preparation: compute the sums of point coordinates (later used for rapid summing).
+///
 pub fn calculate_sums(points: &[Point<isize>]) -> Result<Box<[Sums]>, ()> {
     let mut sums = Vec::new();
     sums.try_reserve_exact(points.len() + 1).or(Err(()))?;
 
-    /* preparatory computation for later fast summing */
+    // TODO: Doesn't this result in two identical zero sums in the beginning?
+    // Should this be [Sums; n] instead of [Sums; n+1]?
     let mut acc = Sums::default();
     sums.push(acc);
 
     let origin = points[0];
-    sums.extend(points.iter().map(|pt| {
-        acc += (*pt - origin).to_f64();
+    sums.extend(points.iter().map(|&point| {
+        acc += (point - origin).to_f64();
         acc
     }));
 

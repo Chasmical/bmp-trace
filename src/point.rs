@@ -147,12 +147,12 @@ impl Point<f64> {
     /// Corresponds to `double tangent(dpoint_t, dpoint_t, dpoint_t, dpoint_t, dpoint_t, dpoint_t)`
     /// in Potrace.
     pub fn tangent(self, p1: Self, p2: Self, p3: Self, q0: Self, q1: Self) -> f64 {
-        /* (1-t)^2 a0 + 2(1-t)t b0 + t^2 c0 = 0 */
+        // (1-t)^2 a0 + 2(1-t)t b0 + t^2 c0 = 0
         let a0 = Self::cprod(self, p1, q0, q1);
         let b0 = Self::cprod(p1, p2, q0, q1);
         let c0 = Self::cprod(p2, p3, q0, q1);
 
-        /* a t^2 + b t + c = 0 */
+        // a t^2 + b t + c = 0
         let a = a0 - 2.0 * b0 + c0;
         let b = -2.0 * a0 + 2.0 * b0;
         let c = a0;

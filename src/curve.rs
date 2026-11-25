@@ -31,12 +31,12 @@ pub enum SegmentTag {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Segment {
-    pub(crate) tag: SegmentTag,    // int* tag
-    pub(crate) c: [Point<f64>; 3], // dpoint_t[3]* c
-    pub(crate) vertex: Point<f64>, // dpoint_t* vertex
-    pub(crate) alpha: f64,         // double* alpha
-    pub(crate) alpha0: f64,        // double* alpha0
-    pub(crate) beta: f64,          // double* beta
+    pub(crate) tag: SegmentTag,                 // int* tag
+    pub(crate) control_points: [Point<f64>; 3], // dpoint_t[3]* c
+    pub(crate) vertex: Point<f64>,              // dpoint_t* vertex
+    pub(crate) alpha: f64,                      // double* alpha
+    pub(crate) alpha0: f64,                     // double* alpha0
+    pub(crate) beta: f64,                       // double* beta
 }
 
 impl Curve {
@@ -93,10 +93,13 @@ impl std::ops::Sub for Sums {
     }
 }
 
+/// A path is represented as an array of points, which are thought to lie on the corners of pixels
+/// (not their centers). The path point `(x,y)` is the lower left corner of the pixel `(x,y)`.
+///
 /// Corresponds to `potrace_privpath_t` in Potrace.
 #[derive(Clone, Default)]
 pub struct Path {
-    pub(crate) pt: Vec<Point<isize>>,
+    pub(crate) points: Vec<Point<isize>>,
     pub(crate) is_negative: bool,
     pub(crate) area: usize,
     pub(crate) curve: Curve,

@@ -11,16 +11,15 @@ use crate::{Point, Sums, util};
 
 /// Stage 2: calculate the optimal polygon (Sec. 2.2.2-2.2.4).
 ///
-/// Find the optimal polygon. Fill in the m and po components.
-/// Non-cyclic version: assumes i=0 is in the polygon.
+/// Finds the optimal polygon. Non-cyclic version: assumes i=0 is in the polygon.
 /// FIXME: implement cyclic version.
 ///
 pub fn calculate_optimal_polygon(
-    pt: &[Point<isize>],
+    points: &[Point<isize>],
     sums: &[Sums],
     lon: &[usize],
 ) -> Result<Box<[usize]>, ()> {
-    let n = pt.len();
+    let n = points.len();
 
     let mut penalties = util::alloc_default_slice::<f64>(n + 1)?;
     let mut prev = util::alloc_default_slice::<usize>(n + 1)?;
@@ -29,7 +28,7 @@ pub fn calculate_optimal_polygon(
     let mut seg1 = util::alloc_default_slice::<usize>(n + 1)?;
     let mut clip0 = util::alloc_uninit_slice::<usize>(n)?;
 
-    /* calculate clipped paths */
+    // Calculate clipped paths
     for (i, slot) in clip0.iter_mut().enumerate() {
         let mut c = (lon[(i - 1).rem_euclid(n)] - 1).rem_euclid(n);
         if c == i {
@@ -41,8 +40,8 @@ pub fn calculate_optimal_polygon(
     // SAFETY: All values in clip0 were written to in the loop above
     let clip0 = unsafe { clip0.assume_init() };
 
-    /* calculate backwards path clipping, non-cyclic. j <= clip0[i] iff
-    clip1[j] <= i, for i,j=0..n. */
+    // Calculate backwards path clipping, non-cyclic.
+    // j <= clip0[i] iff clip1[j] <= i, for i,j in 0..n.
     let mut j = 1;
     for i in 0..n {
         while j <= clip0[i] {
@@ -51,7 +50,7 @@ pub fn calculate_optimal_polygon(
         }
     }
 
-    /* calculate seg0[j] = longest path from 0 with j segments */
+    // Calculate seg0[j] = longest path from 0 with j segments
     let mut i = 0;
     let mut j = 0;
     while i < n {
@@ -62,7 +61,7 @@ pub fn calculate_optimal_polygon(
     seg0[j] = n;
     let m = j;
 
-    /* calculate seg1[j] = longest path to n with m-j segments */
+    // Calculate seg1[j] = longest path to n with m-j segments
     let mut i = n;
     for j in (1..=m).rev() {
         seg1[j] = i;
@@ -70,17 +69,16 @@ pub fn calculate_optimal_polygon(
     }
     seg1[0] = 0;
 
-    /* now find the shortest path with m segments, based on penalty3 */
-    /* note: the outer 2 loops jointly have at most n iterations, thus
-    the worst-case behavior here is quadratic. In practice, it is
-    close to linear since the inner loop tends to be short. */
+    // Now find the shortest path with m segments, based on penalty3.
+    // Note: the outer 2 loops jointly have at most n interations, thus the worst case behaviour
+    // here is quadratic. In practice, it is close to linear since the inner loop tends to be short.
     penalties[0] = 0.0;
 
     for j in 1..=m {
         for i in seg1[j]..=seg0[j] {
             let mut best = -1.0;
             for k in (clip1[i]..=seg0[j - 1]).rev() {
-                let this_penalty = penalty3(pt, sums, k, i) + penalties[k];
+                let this_penalty = penalty3(points, sums, k, i) + penalties[k];
                 if best < 0.0 || this_penalty < best {
                     prev[i] = k;
                     best = this_penalty;
@@ -90,27 +88,26 @@ pub fn calculate_optimal_polygon(
         }
     }
 
-    let mut polygons = util::alloc_default_slice::<usize>(m)?;
+    let mut polygon = util::alloc_default_slice::<usize>(m)?;
 
-    /* read off shortest path */
+    // Read off shortest path
     let mut i = n;
     let mut j = m - 1;
     while i > 0 {
         i = prev[i];
-        polygons[j] = i;
+        polygon[j] = i;
         j -= 1;
     }
 
-    Ok(polygons)
+    Ok(polygon)
 }
 
-/// Auxiliary function: calculate the penalty of an edge from i to j in the given path.
-/// This needs the "lon" and "sum*" data.
+/// Calculates the penalty of an edge from `i` to `j` in the given path.
 ///
 fn penalty3(points: &[Point<isize>], sums: &[Sums], i: usize, mut j: usize) -> f64 {
     let n = points.len();
 
-    debug_assert!(i < j && j <= n); /* assume 0<=i<j<=n  */
+    debug_assert!(i < j && j <= n);
 
     let k = (j + 1 - i) as f64;
 

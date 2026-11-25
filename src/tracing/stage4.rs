@@ -15,7 +15,7 @@ pub fn smooth_curve(curve: &mut Curve, alphamax: f64) {
     let seg = &mut *curve.segments;
     let m = seg.len();
 
-    /* examine each vertex and find its best fit */
+    // Examine each vertex and find its best fit
     for i in 0..m {
         let j = (i + 1).rem_euclid(m);
         let k = (i + 2).rem_euclid(m);
@@ -36,23 +36,23 @@ pub fn smooth_curve(curve: &mut Curve, alphamax: f64) {
         } else {
             alpha = 4.0 / 3.0;
         }
-        seg[j].alpha0 = alpha; /* remember "original" value of alpha */
+        seg[j].alpha0 = alpha; // Remember "original" value of alpha
 
         if alpha >= alphamax {
-            /* pointed corner */
+            // Pointed corner
             seg[j].tag = SegmentTag::Corner;
-            seg[j].c[1] = v_j;
-            seg[j].c[2] = p4;
+            seg[j].control_points[1] = v_j;
+            seg[j].control_points[2] = p4;
         } else {
             alpha = alpha.clamp(0.55, 1.0);
             let p2 = v_i.lerp(v_j, 0.5 + 0.5 * alpha);
             let p3 = v_k.lerp(v_j, 0.5 + 0.5 * alpha);
             seg[j].tag = SegmentTag::CurveTo;
-            seg[j].c[0] = p2;
-            seg[j].c[1] = p3;
-            seg[j].c[2] = p4;
+            seg[j].control_points[0] = p2;
+            seg[j].control_points[1] = p3;
+            seg[j].control_points[2] = p4;
         }
-        seg[j].alpha = alpha; /* store the "cropped" value of alpha */
+        seg[j].alpha = alpha; // Store the "cropped" value of alpha
         seg[j].beta = 0.5;
     }
 }

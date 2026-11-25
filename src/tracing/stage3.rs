@@ -9,14 +9,19 @@
 
 use crate::{Curve, Point, Sums, util};
 
-/* Adjust vertices of optimal polygon: calculate the intersection of
-the two "optimal" line segments, then move it into the unit square
-if it lies outside. Return 1 with errno set on error; 0 on
-success. */
-pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Result<Curve, ()> {
-    let n = pt.len();
-    let m = po.len();
-    let origin = pt[0].to_f64();
+/// Stage 3: vertex adjustment (Sec. 2.3.1).
+///
+/// Adjusts the vertices of the optimal polygon. Calculates the intersection of the two "optimal"
+/// line segments, then moves it into the unit square if it lies outside.
+///
+pub fn adjust_vertices(
+    points: &[Point<isize>],
+    sums: &[Sums],
+    polygons: &[usize],
+) -> Result<Curve, ()> {
+    let n = points.len();
+    let m = polygons.len();
+    let origin = points[0].to_f64();
 
     let mut ctr = util::alloc_default_slice::<Point<f64>>(m)?;
     let mut dir = util::alloc_default_slice::<Point<f64>>(m)?;
@@ -25,20 +30,18 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
     let mut curve = Curve::try_new(m)?;
     let seg = &mut *curve.segments;
 
-    /* calculate "optimal" point-slope representation for each line
-    segment */
+    // Calculate the "optimal" point-slope representation for each line segment
     for i in 0..m {
-        let j = po[(i + 1).rem_euclid(m)];
-        let j = ((j - po[i]).rem_euclid(n)) + po[i];
-        let (ctr_i, dir_i) = point_slope(pt, sums, po[i] as isize, j as isize);
+        let j = polygons[(i + 1).rem_euclid(m)];
+        let j = ((j - polygons[i]).rem_euclid(n)) + polygons[i];
+        let (ctr_i, dir_i) = point_slope(points, sums, polygons[i] as isize, j as isize);
         ctr[i] = ctr_i;
         dir[i] = dir_i;
     }
 
     let mut v = [0.0; 3];
-    /* represent each line segment as a singular quadratic form; the
-    distance of a point (x,y) from the line segment will be
-    (x,y,1)Q(x,y,1)^t, where Q=q[i]. */
+    // Represent each line segment as a singular quadratic form; the distance of
+    // a point (x,y) from the line segment will be (x,y,1)Q(x,y,1)^t, where Q=q[i].
     for i in 0..m {
         let d = dir[i].x.powi(2) + dir[i].y.powi(2);
         if d == 0.0 {
@@ -56,20 +59,19 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
         }
     }
 
-    /* now calculate the "intersections" of consecutive segments.
-    Instead of using the actual intersection, we find the point
-    within a given unit square which minimizes the square distance to
-    the two lines. */
+    // Now calculate the "intersections" of consecutive segments. Instead of using the actual
+    // intersection, we find the point within a given unit square which minimizes the square
+    // distance to the two lines.
     for i in 0..m {
-        /* let s be the vertex, in coordinates relative to x0/y0 */
-        let s = pt[po[i]].to_f64() - origin;
+        // Let s be the vertex, in coordinates relative to x0,y0
+        let s = points[polygons[i]].to_f64() - origin;
 
-        /* intersect segments i-1 and i */
+        // Intersect segments i-1 and i
 
         let j = (i - 1).rem_euclid(m);
 
         let mut qm = QuadForm::default();
-        /* add quadratic forms */
+        // Add quadratic forms
         for l in 0..3 {
             for k in 0..3 {
                 qm[l][k] = q[j][l][k] + q[i][l][k];
@@ -77,8 +79,8 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
         }
 
         let mut w = loop {
-            /* minimize the quadratic form Q on the unit square */
-            /* find intersection */
+            // Minimize the quadratic form Q on the unit square
+            // Find intersection
 
             let det = qm[0][0] * qm[1][1] - qm[0][1] * qm[1][0];
             if det != 0.0 {
@@ -88,8 +90,8 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
                 ) / det;
             }
 
-            /* matrix is singular - lines are parallel. Add another,
-            orthogonal axis, through the center of the unit square */
+            // Matrix is singular - lines are parallel. Add another, orthogonal axis,
+            // through the center of the unit square.
             if qm[0][0] > qm[1][1] {
                 v[0] = -qm[0][1];
                 v[1] = qm[0][0];
@@ -116,14 +118,13 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
             continue;
         }
 
-        /* the minimum was not in the unit square; now minimize quadratic
-        on boundary of square */
+        // The minimum was not in the unit square; now minimize quadratic on boundary of square.
         let mut min = quadform(qm, s);
         let mut min_p = s;
 
         if qm[0][0] != 0.0 {
             for z in 0..2 {
-                /* value of the y-coordinate */
+                // Value of the y-coordinate
                 w.y = s.y - 0.5 + z as f64;
                 w.x = -(qm[0][1] * w.y + qm[0][2]) / qm[0][0];
                 dx = (w.x - s.x).abs();
@@ -137,7 +138,7 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
 
         if qm[1][1] != 0.0 {
             for z in 0..2 {
-                /* value of the x-coordinate */
+                // Value of the x-coordinate
                 w.x = s.x - 0.5 + z as f64;
                 w.y = -(qm[1][0] * w.x + qm[1][2]) / qm[1][1];
                 dy = (w.y - s.y).abs();
@@ -148,7 +149,7 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
                 }
             }
         }
-        /* check four corners */
+        // Check four corners
         for l in 0..2 {
             for k in 0..2 {
                 w.x = s.x - 0.5 + l as f64;
@@ -168,16 +169,16 @@ pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Resu
 }
 
 fn point_slope(
-    pt: &[Point<isize>],
+    points: &[Point<isize>],
     sums: &[Sums],
     mut i: isize,
     mut j: isize,
 ) -> (Point<f64>, Point<f64>) {
-    /* assume i < j */
+    debug_assert!(i < j);
 
-    let n = pt.len() as isize;
+    let n = points.len() as isize;
 
-    let mut r = 0; /* rotations from i to j */
+    let mut r = 0; // rotations from i to j
 
     while j >= n {
         j -= n;
@@ -219,11 +220,11 @@ fn point_slope(
 
     let lambda2 = (a + c + ((a - c) * (a - c) + 4.0 * b * b).sqrt()) / 2.0;
 
-    /* now find e.vector for lambda2 */
+    // Now find e.vector for lambda2
     a -= lambda2;
     c -= lambda2;
 
-    /* sometimes this can happen when k=4: the two eigenvalues coincide */
+    // Sometimes may return 0,0 - when k=4: the two eigenvalues coincide
     let mut dir = Point::default();
 
     if a.abs() >= c.abs() {
