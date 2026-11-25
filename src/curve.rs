@@ -21,12 +21,11 @@ pub struct Curve {
 /// Enum for segment tags.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentTag {
-    #[default]
-    None = 0,
-    /// Corresponds to `POTRACE_CURVETO` in Potrace.
-    CurveTo = 1,
     /// Corresponds to `POTRACE_CORNER` in Potrace.
-    Corner = 2,
+    #[default]
+    Corner,
+    /// Corresponds to `POTRACE_CURVETO` in Potrace.
+    CurveTo,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -127,8 +126,11 @@ impl PathTree {
         unsafe { self.next_sibling.as_ref() }
     }
 
-    pub fn children(&self) -> PathTreeChildren<'_> {
-        PathTreeChildren { child: self.first_child() }
+    pub fn children(&self) -> PathTreeIter<'_> {
+        PathTreeIter { sibling: self.first_child() }
+    }
+    pub fn self_and_siblings(&self) -> PathTreeIter<'_> {
+        PathTreeIter { sibling: Some(self) }
     }
 }
 
@@ -143,15 +145,15 @@ impl Drop for PathTree {
 }
 
 #[derive(Default, Clone)]
-pub struct PathTreeChildren<'a> {
-    child: Option<&'a PathTree>,
+pub struct PathTreeIter<'a> {
+    sibling: Option<&'a PathTree>,
 }
 
-impl<'a> Iterator for PathTreeChildren<'a> {
+impl<'a> Iterator for PathTreeIter<'a> {
     type Item = &'a PathTree;
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.child?;
-        self.child = next.first_child();
+        let next = self.sibling?;
+        self.sibling = next.next_sibling();
         Some(next)
     }
 }

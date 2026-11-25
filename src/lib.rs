@@ -12,6 +12,7 @@
 #![allow(clippy::len_without_is_empty)]
 #![allow(clippy::missing_safety_doc)]
 
+pub mod backends;
 mod bitmap;
 mod bitmap_io;
 mod curve;
