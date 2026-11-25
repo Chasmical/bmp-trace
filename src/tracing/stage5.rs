@@ -7,13 +7,13 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Path, Point, SegmentTag, util};
+use crate::{Curve, Point, Segment, SegmentTag, util};
 
 /// Stage 5: Curve optimization (Sec. 2.4).
 ///
-pub fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
-    let m = pp.curve.segments.len();
-    let seg = &*pp.curve.segments;
+pub fn optimize_curve(curve: &Curve, opt_tolerance: f64) -> Result<Curve, ()> {
+    let m = curve.segments.len();
+    let seg = &*curve.segments;
 
     let mut pt = util::alloc_default_slice::<isize>(m + 1)?;
     let mut pen = util::alloc_default_slice::<f64>(m + 1)?;
@@ -62,7 +62,7 @@ pub fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
         len[j] = len[j - 1] + 1;
 
         for i in (0..=j - 2).rev() {
-            let r = opti_penalty(pp, i, (j).rem_euclid(m), opt_tolerance, &convc, &areac);
+            let r = opti_penalty(seg, i, (j).rem_euclid(m), opt_tolerance, &convc, &areac);
             if let Ok(o) = r {
                 if len[j] > len[i] + 1 || (len[j] == len[i] + 1 && pen[j] > pen[i] + o.penalty) {
                     pt[j] = i as isize;
@@ -77,9 +77,9 @@ pub fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
     }
 
     let om = len[m];
-    pp.ocurve.init(om)?;
-    let seg = &*pp.curve.segments;
-    let oseg = &mut *pp.ocurve.segments;
+    let mut ocurve = Curve::try_new(om)?;
+    let seg = &*curve.segments;
+    let oseg = &mut *ocurve.segments;
 
     let mut s = util::alloc_default_slice::<f64>(om)?;
     let mut t = util::alloc_default_slice::<f64>(om)?;
@@ -111,9 +111,8 @@ pub fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
         let i1 = (i + 1).rem_euclid(om);
         oseg[i].beta = s[i] / (s[i] + t[i1]);
     }
-    pp.ocurve.alphacurve = true;
 
-    Ok(())
+    Ok(ocurve)
 }
 
 #[derive(Default, Clone, Copy)]
@@ -130,15 +129,14 @@ const COS179: f64 = -0.999847695156; /* the cosine of 179 degrees */
 /// Calculate best fit from i+.5 to j+.5.  Assume i<j (cyclically).
 /// Return Ok and set badness and parameters (alpha, beta), if possible. Return Err if impossible.
 fn opti_penalty(
-    pp: &mut Path,
+    seg: &[Segment],
     i: usize,
     j: usize,
     opt_tolerance: f64,
     convc: &[isize],
     areac: &[f64],
 ) -> Result<OptiPenalty, ()> {
-    let m = pp.curve.segments.len();
-    let seg = &*pp.curve.segments;
+    let m = seg.len();
 
     /* check convexity, corner-freeness, and maximum bend < 179 degrees */
 

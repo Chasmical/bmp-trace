@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Bitmap, Params, Path, Point, TurnPolicy, Word};
+use crate::{Bitmap, Curve, Params, Path, Point, TurnPolicy, Word};
 
 /* Decompose the given bitmap into paths. Returns a linked list of
 path_t objects with the fields len, pt, area, sign filled
@@ -41,7 +41,7 @@ pub fn bm_to_path_list(
         let p = find_path(&bm1, x, y + 1, is_negative, params.turn_policy)?;
 
         /* update buffered image */
-        xor_path(&mut bm1, &p);
+        xor_path(&mut bm1, &p.pt);
 
         /* if it's a turd, eliminate it, else append it to the list */
         if p.area <= params.turd_size {
@@ -168,13 +168,7 @@ fn find_path(
     }
 
     /* allocate new path object */
-    Ok(Path {
-        p0: pt[0],
-        pt: pt.into_boxed_slice(),
-        area: area as usize,
-        is_negative,
-        ..Default::default()
-    })
+    Ok(Path { pt, area: area as usize, is_negative, curve: Curve::default() })
 }
 
 /* deterministically and efficiently hash (x,y) into a pseudo-random bit */
@@ -237,16 +231,16 @@ also stores other information about the path) */
 
 /* xor the given pixmap with the interior of the given path. Note: the
 path must be within the dimensions of the pixmap. */
-fn xor_path(bm: &mut Bitmap, p: &Path) {
-    if p.len() == 0 {
+fn xor_path(bm: &mut Bitmap, pt: &[Point<isize>]) {
+    if pt.is_empty() {
         /* a path of length 0 is silly, but legal */
         return;
     }
 
-    let mut y1 = p.pt.last().unwrap().y;
-    let xa = p.pt[0].x & Word::BITS.wrapping_neg() as isize;
+    let mut y1 = pt.last().unwrap().y;
+    let xa = pt[0].x & Word::BITS.wrapping_neg() as isize;
 
-    for &pt in &p.pt {
+    for &pt in pt {
         if pt.y != y1 {
             /* efficiently invert the rectangle [x,xa] x [y,y1] */
             xor_to_ref(bm, pt.x as usize, pt.y.min(y1) as usize, xa as usize);

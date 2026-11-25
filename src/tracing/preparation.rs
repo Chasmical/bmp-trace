@@ -7,12 +7,10 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Path, Sums};
+use crate::{Point, Sums};
 
 /// Preparation: fill in the sum* fields of a path (used for later rapid summing).
-pub fn calc_sums(pp: &mut Path) -> Result<(), ()> {
-    let points = &*pp.pt;
-
+pub fn calculate_sums(points: &[Point<isize>]) -> Result<Box<[Sums]>, ()> {
     let mut sums = Vec::new();
     sums.try_reserve_exact(points.len() + 1).or(Err(()))?;
 
@@ -20,11 +18,11 @@ pub fn calc_sums(pp: &mut Path) -> Result<(), ()> {
     let mut acc = Sums::default();
     sums.push(acc);
 
-    let origin = pp.p0;
+    let origin = points[0];
     sums.extend(points.iter().map(|pt| {
         acc += (*pt - origin).to_f64();
         acc
     }));
 
-    Ok(())
+    Ok(sums.into_boxed_slice())
 }

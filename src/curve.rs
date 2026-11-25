@@ -16,7 +16,6 @@ use crate::{Point, util};
 #[derive(Clone, Default)]
 pub struct Curve {
     pub(crate) segments: Box<[Segment]>, // int n // see Segment struct
-    pub(crate) alphacurve: bool,         // int alphacurve
 }
 
 /// Enum for segment tags.
@@ -44,9 +43,9 @@ impl Curve {
     /// Initializes this curve to the given size.
     ///
     /// Corresponds to `int privcurve_init(privcurve_t*, int)` in Potrace.
-    pub(crate) fn init(&mut self, len: usize) -> Result<(), ()> {
-        self.segments = util::alloc_default_slice(len)?;
-        Ok(())
+    pub fn try_new(len: usize) -> Result<Self, ()> {
+        let segments = util::alloc_default_slice(len)?;
+        Ok(Self { segments })
     }
 }
 
@@ -97,50 +96,8 @@ impl std::ops::Sub for Sums {
 /// Corresponds to `potrace_privpath_t` in Potrace.
 #[derive(Clone, Default)]
 pub struct Path {
-    // len: usize,                // int len
-    pub(crate) pt: Box<[Point<isize>]>, // point_t* pt // pt[len]
-    pub(crate) lon: Box<[usize]>,       // int* lon    // lon[len]
-
-    pub(crate) p0: Point<isize>,  // int x0, y0
-    pub(crate) sums: Box<[Sums]>, // sums_t* sums // sums[len+1]
-
-    // m: usize,                 // int m
-    pub(crate) po: Box<[usize]>, // int* po // po[m]
-
-    pub(crate) curve: Curve,  // privcurve_t curve
-    pub(crate) ocurve: Curve, // privcurve_t ocurve
-    // privcurve_t* fcurve
+    pub(crate) pt: Vec<Point<isize>>,
     pub(crate) is_negative: bool,
     pub(crate) area: usize,
+    pub(crate) curve: Curve,
 }
-
-impl Path {
-    pub const fn len(&self) -> usize {
-        self.pt.len()
-    }
-    #[inline(always)]
-    pub const fn fcurve(&self) -> &Curve {
-        if !self.ocurve.segments.is_empty() { &self.ocurve } else { &self.curve }
-    }
-    #[inline(always)]
-    pub const fn fcurve_mut(&mut self) -> &mut Curve {
-        if !self.ocurve.segments.is_empty() { &mut self.ocurve } else { &mut self.curve }
-    }
-}
-
-// /// Linked list of signed curve segments. Also carries a tree structure.
-// ///
-// /// Corresponds to `potrace_path_t` in Potrace.
-// #[derive(Clone, Default)]
-// pub struct PathTreeList {
-//     pub(crate) next: Option<Box<PathTreeList>>,     // potrace_path_s* next
-//     pub(crate) childlist: Option<Rc<PathTreeList>>, // potrace_path_s* childlist
-//     pub(crate) sibling: Option<Rc<PathTreeList>>,   // potrace_path_s* sibling
-//     pub(crate) private: Box<Path>,                  // potrace_privpath_s* priv
-// }
-
-// impl PathTreeList {
-//     pub const fn curve(&self) -> &Curve {
-//         self.private.fcurve()
-//     }
-// }

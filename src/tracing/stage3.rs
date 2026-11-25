@@ -7,25 +7,30 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Path, Point, util};
+use crate::{Curve, Point, Sums, util};
 
-pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
-    let n = pp.len();
-    let m = pp.po.len();
-    let origin = pp.p0.to_f64();
+/* Adjust vertices of optimal polygon: calculate the intersection of
+the two "optimal" line segments, then move it into the unit square
+if it lies outside. Return 1 with errno set on error; 0 on
+success. */
+pub fn adjust_vertices(pt: &[Point<isize>], sums: &[Sums], po: &[usize]) -> Result<Curve, ()> {
+    let n = pt.len();
+    let m = po.len();
+    let origin = pt[0].to_f64();
 
     let mut ctr = util::alloc_default_slice::<Point<f64>>(m)?;
     let mut dir = util::alloc_default_slice::<Point<f64>>(m)?;
     let mut q = util::alloc_default_slice::<QuadForm>(m)?;
 
-    pp.curve.init(m)?;
+    let mut curve = Curve::try_new(m)?;
+    let seg = &mut *curve.segments;
 
     /* calculate "optimal" point-slope representation for each line
     segment */
     for i in 0..m {
-        let j = pp.po[(i + 1).rem_euclid(m)];
-        let j = ((j - pp.po[i]).rem_euclid(n)) + pp.po[i];
-        let (ctr_i, dir_i) = point_slope(pp, pp.po[i] as isize, j as isize);
+        let j = po[(i + 1).rem_euclid(m)];
+        let j = ((j - po[i]).rem_euclid(n)) + po[i];
+        let (ctr_i, dir_i) = point_slope(pt, sums, po[i] as isize, j as isize);
         ctr[i] = ctr_i;
         dir[i] = dir_i;
     }
@@ -50,9 +55,6 @@ pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
             }
         }
     }
-
-    let po = &*pp.po;
-    let pt = &*pp.pt;
 
     /* now calculate the "intersections" of consecutive segments.
     Instead of using the actual intersection, we find the point
@@ -110,7 +112,7 @@ pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
         let mut dx = (w.x - s.x).abs();
         let mut dy = (w.y - s.y).abs();
         if dx <= 0.5 && dy <= 0.5 {
-            pp.curve.segments[i].vertex = w + origin;
+            seg[i].vertex = w + origin;
             continue;
         }
 
@@ -159,17 +161,21 @@ pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
             }
         }
 
-        pp.curve.segments[i].vertex = min_p + origin;
+        seg[i].vertex = min_p + origin;
     }
 
-    Ok(())
+    Ok(curve)
 }
 
-fn point_slope(path: &mut Path, mut i: isize, mut j: isize) -> (Point<f64>, Point<f64>) {
+fn point_slope(
+    pt: &[Point<isize>],
+    sums: &[Sums],
+    mut i: isize,
+    mut j: isize,
+) -> (Point<f64>, Point<f64>) {
     /* assume i < j */
 
-    let n = path.pt.len() as isize;
-    let sums = &mut *path.sums;
+    let n = pt.len() as isize;
 
     let mut r = 0; /* rotations from i to j */
 

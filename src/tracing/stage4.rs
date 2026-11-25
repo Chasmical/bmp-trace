@@ -11,9 +11,9 @@ use crate::{Curve, SegmentTag};
 
 /// Stage 4: smoothing and corner analysis (Sec. 2.3.3).
 ///
-pub fn smooth(curve: &mut Curve, alphamax: f64) {
-    let m = curve.segments.len();
+pub fn smooth_curve(curve: &mut Curve, alphamax: f64) {
     let seg = &mut *curve.segments;
+    let m = seg.len();
 
     /* examine each vertex and find its best fit */
     for i in 0..m {
@@ -55,5 +55,4 @@ pub fn smooth(curve: &mut Curve, alphamax: f64) {
         seg[j].alpha = alpha; /* store the "cropped" value of alpha */
         seg[j].beta = 0.5;
     }
-    curve.alphacurve = true;
 }

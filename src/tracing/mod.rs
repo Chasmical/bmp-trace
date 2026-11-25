@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Bitmap, Path};
+use crate::{Bitmap, Curve, Path, Point};
 
 mod decomposition;
 mod preparation;
@@ -22,8 +22,7 @@ pub struct Params {
     pub turd_size: usize,
     pub turn_policy: TurnPolicy,
     pub alpha_max: f64,
-    pub opt_curves: bool,
-    pub opt_tolerance: f64,
+    pub opt_tolerance: Option<f64>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnPolicy {
@@ -36,6 +35,20 @@ pub enum TurnPolicy {
     Random = 6,
 }
 
+// Process tree:
+//
+//                    preparation
+//      decomposition   stage 1    stage 2     stage 3     stage 4+5
+//            ┊            ┊          ┊           ┊            ┊
+//            ┊  ┌──────┐  ┊          ┊           ┊  ┌───────┐ ┊  ┌────────┐
+//            ┊  │ pt   │─┬─>─────────┬─>─────────┬─>│ curve │─┬─>│ ocurve │
+// ┌────────┐ ┊  ├──────┤ │  ┌──────┐ │  ┌──────┐ │  └───────┘ │  └────────┘
+// │ bitmap │───>│ area │ ├─>│ sums │─┴─>│ po   │─┘            │
+// └────────┘    ├──────┤ │  ├──────┤    └──────┘              │
+//               │ sign │ └─>│ lon  │──────^                   │
+//               └──────┘    └──────┘                          │
+//                   └─>───────────────────────────────────────┘
+
 pub fn trace(
     bm: &Bitmap,
     params: Params,
@@ -46,14 +59,14 @@ pub fn trace(
     };
     let mut paths = decomposition::bm_to_path_list(bm, params, sub_progress)?;
 
-    let total_progress = paths.iter().map(|x| x.len()).sum::<usize>() as f64;
+    let total_progress = paths.iter().map(|x| x.pt.len()).sum::<usize>() as f64;
 
     let mut cur_progress = 0.0;
     for path in &mut paths {
-        process_path(path, params)?;
+        path.curve = process_path(&path.pt, path.is_negative, params)?;
 
         if let Some(progress) = progress.as_mut() {
-            cur_progress += path.len() as f64;
+            cur_progress += path.pt.len() as f64;
             progress(cur_progress / total_progress);
         }
     }
@@ -61,21 +74,21 @@ pub fn trace(
     Ok(paths)
 }
 
-fn process_path(p: &mut Path, params: Params) -> Result<(), ()> {
-    preparation::calc_sums(p)?;
-    stage1::calc_lon(p)?;
-    stage2::best_polygon(p)?;
-    stage3::adjust_vertices(p)?;
+fn process_path(pt: &[Point<isize>], is_negative: bool, params: Params) -> Result<Curve, ()> {
+    let sums = preparation::calculate_sums(pt)?;
+    let lon = stage1::calculate_longest_subpaths(pt)?;
+    let po = stage2::calculate_optimal_polygon(pt, &sums, &lon)?;
+    let mut curve = stage3::adjust_vertices(pt, &sums, &po)?;
 
-    if p.is_negative {
+    if is_negative {
         /* reverse orientation of negative paths */
-        p.curve.segments.reverse();
+        curve.segments.reverse();
     }
-    stage4::smooth(&mut p.curve, params.alpha_max);
+    stage4::smooth_curve(&mut curve, params.alpha_max);
 
-    if params.opt_curves {
-        stage5::opticurve(p, params.opt_tolerance)?;
+    if let Some(opt_tolerance) = params.opt_tolerance {
+        stage5::optimize_curve(&curve, opt_tolerance)
+    } else {
+        Ok(curve)
     }
-
-    Ok(())
 }

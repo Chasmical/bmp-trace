@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Path, Point, Sums, util};
+use crate::{Point, Sums, util};
 
 /// Stage 2: calculate the optimal polygon (Sec. 2.2.2-2.2.4).
 ///
@@ -15,8 +15,12 @@ use crate::{Path, Point, Sums, util};
 /// Non-cyclic version: assumes i=0 is in the polygon.
 /// FIXME: implement cyclic version.
 ///
-pub fn best_polygon(pp: &mut Path) -> Result<(), ()> {
-    let n = pp.len();
+pub fn calculate_optimal_polygon(
+    pt: &[Point<isize>],
+    sums: &[Sums],
+    lon: &[usize],
+) -> Result<Box<[usize]>, ()> {
+    let n = pt.len();
 
     let mut penalties = util::alloc_default_slice::<f64>(n + 1)?;
     let mut prev = util::alloc_default_slice::<usize>(n + 1)?;
@@ -26,7 +30,6 @@ pub fn best_polygon(pp: &mut Path) -> Result<(), ()> {
     let mut clip0 = util::alloc_uninit_slice::<usize>(n)?;
 
     /* calculate clipped paths */
-    let lon = &*pp.lon;
     for (i, slot) in clip0.iter_mut().enumerate() {
         let mut c = (lon[(i - 1).rem_euclid(n)] - 1).rem_euclid(n);
         if c == i {
@@ -73,14 +76,11 @@ pub fn best_polygon(pp: &mut Path) -> Result<(), ()> {
     close to linear since the inner loop tends to be short. */
     penalties[0] = 0.0;
 
-    let points = &*pp.pt;
-    let sums = &*pp.sums;
-
     for j in 1..=m {
         for i in seg1[j]..=seg0[j] {
             let mut best = -1.0;
             for k in (clip1[i]..=seg0[j - 1]).rev() {
-                let this_penalty = penalty3(points, sums, k, i) + penalties[k];
+                let this_penalty = penalty3(pt, sums, k, i) + penalties[k];
                 if best < 0.0 || this_penalty < best {
                     prev[i] = k;
                     best = this_penalty;
@@ -100,9 +100,8 @@ pub fn best_polygon(pp: &mut Path) -> Result<(), ()> {
         polygons[j] = i;
         j -= 1;
     }
-    pp.po = polygons;
 
-    Ok(())
+    Ok(polygons)
 }
 
 /// Auxiliary function: calculate the penalty of an edge from i to j in the given path.

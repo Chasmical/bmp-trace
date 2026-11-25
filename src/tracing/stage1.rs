@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Path, Point, util};
+use crate::{Point, util};
 
 const INFTY: isize = 10000000;
 
@@ -32,7 +32,7 @@ const INFTY: isize = 10000000;
 /// sped up by a factor of 6.7, decreasing its time share from 51.4% to 13.61%, and speeding up
 /// the overall algorithm by a factor of 1.78. In any case, the savings are substantial.
 ///
-pub fn calc_lon(pp: &mut Path) -> Result<(), ()> {
+pub fn calculate_longest_subpaths(points: &[Point<isize>]) -> Result<Box<[usize]>, ()> {
     #[inline]
     fn floor_div(a: isize, n: isize) -> isize {
         if a >= 0 { a / n } else { -1 - (-1 - a) / n }
@@ -43,7 +43,6 @@ pub fn calc_lon(pp: &mut Path) -> Result<(), ()> {
         if a <= c { a <= b && b < c } else { a <= b || b < c }
     }
 
-    let points = &*pp.pt;
     let n = points.len();
 
     let mut pivk = util::alloc_uninit_slice(n)?;
@@ -182,7 +181,5 @@ pub fn calc_lon(pp: &mut Path) -> Result<(), ()> {
         lon[i] = j;
     }
 
-    pp.lon = lon;
-
-    Ok(())
+    Ok(lon)
 }
