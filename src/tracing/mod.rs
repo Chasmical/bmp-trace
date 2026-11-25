@@ -85,7 +85,7 @@ pub fn trace(
     decomposition::path_list_to_tree(paths, bm1)
 }
 
-fn process_path(points: &[Point<isize>], is_negative: bool, params: &Params) -> Result<Curve, ()> {
+fn process_path(points: &[Point<usize>], is_negative: bool, params: &Params) -> Result<Curve, ()> {
     let sums = preparation::calculate_sums(points)?;
     let longest = stage1::calculate_straight_subpaths(points)?;
     let polygons = stage2::calculate_optimal_polygon(points, &sums, &longest)?;

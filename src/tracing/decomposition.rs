@@ -129,10 +129,7 @@ pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<Path
                     *hook_out = cur;
                     break;
                 }
-                if bm
-                    .get(p.path.points[0].x as usize, p.path.points[0].y as usize - 1)
-                    .unwrap_or(false)
-                {
+                if bm.get(p.path.points[0].x, p.path.points[0].y - 1).unwrap_or(false) {
                     p.next = *hook_in;
                     *hook_in = p;
                     hook_in = &mut p.next;
@@ -265,7 +262,9 @@ fn find_path(
     let mut points = Vec::new();
 
     loop {
-        points.push(Point { x, y });
+        // All points' coordinates should be non-negative
+        debug_assert!(x >= 0 && y >= 0);
+        points.push(Point { x: x as usize, y: y as usize });
 
         // Move to the next point
         x += dirx;
@@ -273,7 +272,7 @@ fn find_path(
         area += x * diry;
 
         // Stop when we returned to the starting point (completed the path)
-        if x == x0 as isize && y == y0 as isize {
+        if x as usize == x0 && y as usize == y0 {
             break;
         }
 
@@ -370,14 +369,14 @@ fn majority(bm: &Bitmap, x: isize, y: isize) -> bool {
 
 /// XORs the given bitmap with the interior of the given path.
 /// Note: the path must be within the dimensions of the bitmap.
-fn xor_path(bm: &mut Bitmap, points: &[Point<isize>]) {
+fn xor_path(bm: &mut Bitmap, points: &[Point<usize>]) {
     let mut y1 = points.last().unwrap().y;
-    let xa = points[0].x & Word::BITS.wrapping_neg() as isize;
+    let xa = points[0].x & Word::BITS.wrapping_neg();
 
     for &Point { x, y } in points {
         if y != y1 {
             // Efficiently invert the rectangle [x,xa] x [y,y1]
-            xor_to_ref(bm, x as usize, y.min(y1) as usize, xa as usize);
+            xor_to_ref(bm, x, y.min(y1), xa);
             y1 = y;
         }
     }
@@ -407,17 +406,17 @@ fn xor_to_ref(bm: &mut Bitmap, x: usize, y: usize, xa: usize) {
 
 #[derive(Debug, Default, Clone, Copy)]
 struct Bbox {
-    x0: isize,
-    x1: isize,
-    y0: isize,
-    y1: isize,
+    x0: usize,
+    x1: usize,
+    y0: usize,
+    y1: usize,
 }
 
 /// Finds the bounding box of a given path. Path is assumed to be of non-zero length.
-fn set_bbox_path(points: &[Point<isize>]) -> Bbox {
+fn set_bbox_path(points: &[Point<usize>]) -> Bbox {
     debug_assert!(!points.is_empty());
 
-    let mut bbox = Bbox { y0: isize::MAX, y1: 0, x0: isize::MAX, x1: 0 };
+    let mut bbox = Bbox { y0: usize::MAX, y1: 0, x0: usize::MAX, x1: 0 };
 
     for &Point { x, y } in points {
         bbox.x0 = bbox.x0.min(x);
@@ -432,12 +431,12 @@ fn set_bbox_path(points: &[Point<isize>]) -> Bbox {
 /// Clears the bitmap, assuming the bounding box is set correctly
 /// (faster than clearing the whole bitmap).
 fn clear_bm_with_bbox(bm: &mut Bitmap, bbox: Bbox) {
-    let imin = bbox.x0 as usize / Word::BITS;
-    let imax = (bbox.x1 as usize).div_ceil(Word::BITS);
+    let imin = bbox.x0 / Word::BITS;
+    let imax = bbox.x1.div_ceil(Word::BITS);
 
     for y in bbox.y0..bbox.y1 {
         for i in imin..imax {
-            unsafe { bm.word_unchecked_mut(i, y as usize).0 = 0 };
+            unsafe { bm.word_unchecked_mut(i, y).0 = 0 };
         }
     }
 }

@@ -15,7 +15,7 @@ use crate::{Curve, Point, Sums, util};
 /// line segments, then moves it into the unit square if it lies outside.
 ///
 pub fn adjust_vertices(
-    points: &[Point<isize>],
+    points: &[Point<usize>],
     sums: &[Sums],
     polygons: &[usize],
 ) -> Result<Curve, ()> {
@@ -169,7 +169,7 @@ pub fn adjust_vertices(
 }
 
 fn point_slope(
-    points: &[Point<isize>],
+    points: &[Point<usize>],
     sums: &[Sums],
     mut i: isize,
     mut j: isize,

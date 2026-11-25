@@ -22,7 +22,7 @@ const INFTY: isize = 10000000;
 /// This implementation of the algorithm is `O(n^2)`. A "constraint" means that future points must
 /// satisfy `constraint[0] × cur >= 0` and `constraint[1] × cur <= 0`.
 ///
-pub fn calculate_straight_subpaths(points: &[Point<isize>]) -> Result<Box<[usize]>, ()> {
+pub fn calculate_straight_subpaths(points: &[Point<usize>]) -> Result<Box<[usize]>, ()> {
     #[inline]
     fn floor_div(a: isize, n: isize) -> isize {
         if a >= 0 { a / n } else { -1 - (-1 - a) / n }
@@ -62,7 +62,7 @@ pub fn calculate_straight_subpaths(points: &[Point<isize>]) -> Result<Box<[usize
         let mut ct = [0u32; 4];
 
         // Keep track of "directions" that have occured
-        let diff = points[(i + 1).rem_euclid(points.len())] - points[i];
+        let diff = points[(i + 1).rem_euclid(points.len())].offset_from(points[i]);
         let dir = (3 + 3 * diff.x + diff.y) / 2;
         ct[dir as usize] += 1;
 
@@ -73,7 +73,7 @@ pub fn calculate_straight_subpaths(points: &[Point<isize>]) -> Result<Box<[usize
         let mut k1 = i;
 
         let constraint_violated = loop {
-            let diff = (points[k] - points[k1]).signum();
+            let diff = points[k].offset_from(points[k1]).signum();
             let dir = (3 + 3 * diff.x + diff.y) / 2;
             ct[dir as usize] += 1;
 
@@ -83,7 +83,7 @@ pub fn calculate_straight_subpaths(points: &[Point<isize>]) -> Result<Box<[usize
                 break false;
             }
 
-            let cur = points[k] - points[i];
+            let cur = points[k].offset_from(points[i]);
 
             // See if current constraint is violated
             if constraint[0].xprod(cur) < 0 || constraint[1].xprod(cur) > 0 {
@@ -120,8 +120,8 @@ pub fn calculate_straight_subpaths(points: &[Point<isize>]) -> Result<Box<[usize
             // k1 was the last "corner" satisfying the current constraint, and k is the first
             // one violating it. We now need to find the last point along k1..k which satisfied
             // the constraint.
-            let dk = (points[k] - points[k1]).signum();
-            let cur = points[k1] - points[i];
+            let dk = points[k].offset_from(points[k1]).signum();
+            let cur = points[k1].offset_from(points[i]);
             // Find largest integer j such that constraint[0] × (cur+j*dk) >= 0 and
             // constraint[1] × (cur+j*dk) <= 0. Use bilinearity of xprod.
             let a = constraint[0].xprod(cur);

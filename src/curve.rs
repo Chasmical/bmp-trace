@@ -98,7 +98,7 @@ impl std::ops::Sub for Sums {
 /// Corresponds to `potrace_privpath_t` in Potrace.
 #[derive(Clone, Default)]
 pub struct Path {
-    pub(crate) points: Vec<Point<isize>>,
+    pub(crate) points: Vec<Point<usize>>,
     pub(crate) is_negative: bool,
     pub(crate) area: usize,
     pub(crate) curve: Curve,

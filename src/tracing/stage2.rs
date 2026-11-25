@@ -15,7 +15,7 @@ use crate::{Point, Sums, util};
 /// FIXME: implement cyclic version.
 ///
 pub fn calculate_optimal_polygon(
-    points: &[Point<isize>],
+    points: &[Point<usize>],
     sums: &[Sums],
     lon: &[usize],
 ) -> Result<Box<[usize]>, ()> {
@@ -105,7 +105,7 @@ pub fn calculate_optimal_polygon(
 
 /// Calculates the penalty of an edge from `i` to `j` in the given path.
 ///
-fn penalty3(points: &[Point<isize>], sums: &[Sums], i: usize, mut j: usize) -> f64 {
+fn penalty3(points: &[Point<usize>], sums: &[Sums], i: usize, mut j: usize) -> f64 {
     let n = points.len();
 
     debug_assert!(i < j && j <= n);
@@ -120,7 +120,7 @@ fn penalty3(points: &[Point<isize>], sums: &[Sums], i: usize, mut j: usize) -> f
     };
 
     let p = (points[i] + points[j]).to_f64() / 2.0 - points[0].to_f64();
-    let e = (points[j] - points[i]).to_f64();
+    let e = points[j].offset_from(points[i]).to_f64();
 
     let a = (sum.x2 - 2.0 * sum.x * p.x) / k + p.x * p.x;
     let b = (sum.xy - sum.x * p.y - sum.y * p.x) / k + p.x * p.y;

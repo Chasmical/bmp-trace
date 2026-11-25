@@ -39,6 +39,14 @@ impl Point<isize> {
         Point { x: self.x as f64, y: self.y as f64 }
     }
 }
+impl Point<usize> {
+    pub const fn offset_from(self, other: Self) -> Point<isize> {
+        Point { x: self.x as isize - other.x as isize, y: self.y as isize - other.y as isize }
+    }
+    pub const fn to_f64(self) -> Point<f64> {
+        Point { x: self.x as f64, y: self.y as f64 }
+    }
+}
 
 impl Point<f64> {
     /// Range over the straight line segment `a..=b` when lambda ranges over `0..=1`.

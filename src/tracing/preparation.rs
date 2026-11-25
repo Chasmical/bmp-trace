@@ -11,7 +11,7 @@ use crate::{Point, Sums};
 
 /// Preparation: compute the sums of point coordinates (later used for rapid summing).
 ///
-pub fn calculate_sums(points: &[Point<isize>]) -> Result<Box<[Sums]>, ()> {
+pub fn calculate_sums(points: &[Point<usize>]) -> Result<Box<[Sums]>, ()> {
     let mut sums = Vec::new();
     sums.try_reserve_exact(points.len() + 1).or(Err(()))?;
 
@@ -22,7 +22,7 @@ pub fn calculate_sums(points: &[Point<isize>]) -> Result<Box<[Sums]>, ()> {
 
     let origin = points[0];
     sums.extend(points.iter().map(|&point| {
-        acc += (point - origin).to_f64();
+        acc += point.offset_from(origin).to_f64();
         acc
     }));
 

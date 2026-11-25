@@ -19,7 +19,7 @@ use std::{
 pub struct SvgWriter<W> {
     inner: W,
     opt: BackendOptions,
-    cur: Point<isize>,
+    cur: Point<usize>,
     last_op: u8,
     column: usize,
     newline: bool,
@@ -64,10 +64,10 @@ impl<W: Write> SvgWriter<W> {
         self.inner
     }
 
-    fn unit(&self, p: Point<f64>) -> Point<isize> {
+    fn unit(&self, p: Point<f64>) -> Point<usize> {
         Point {
-            x: (p.x * self.opt.unit + 0.5).floor() as isize,
-            y: (p.y * self.opt.unit + 0.5).floor() as isize,
+            x: (p.x * self.opt.unit + 0.5).floor() as usize,
+            y: (p.y * self.opt.unit + 0.5).floor() as usize,
         }
     }
 
@@ -95,18 +95,20 @@ impl<W: Write> SvgWriter<W> {
     }
     fn svg_rmoveto(&mut self, p: Point<f64>) -> Result<()> {
         let q = self.unit(p);
-        ship!(self, "m{} {}", q.x - self.cur.x, q.y - self.cur.y)?;
+        let delta = q.offset_from(self.cur);
+        ship!(self, "m{} {}", delta.x, delta.y)?;
         self.cur = q;
         self.last_op = b'm';
         Ok(())
     }
     fn svg_lineto(&mut self, p: Point<f64>) -> Result<()> {
         let q = self.unit(p);
+        let delta = q.offset_from(self.cur);
 
         if self.last_op != b'l' {
-            ship!(self, "l{} {}", q.x - self.cur.x, q.y - self.cur.y)?;
+            ship!(self, "l{} {}", delta.x, delta.y)?;
         } else {
-            ship!(self, "{} {}", q.x - self.cur.x, q.y - self.cur.y)?;
+            ship!(self, "{} {}", delta.x, delta.y)?;
         }
         self.cur = q;
         self.last_op = b'l';
@@ -117,28 +119,14 @@ impl<W: Write> SvgWriter<W> {
         let q2 = self.unit(p2);
         let q3 = self.unit(p3);
 
+        let d1 = q1.offset_from(self.cur);
+        let d2 = q2.offset_from(self.cur);
+        let d3 = q3.offset_from(self.cur);
+
         if self.last_op != b'c' {
-            ship!(
-                self,
-                "c{} {} {} {} {} {}",
-                q1.x - self.cur.x,
-                q1.y - self.cur.y,
-                q2.x - self.cur.x,
-                q2.y - self.cur.y,
-                q3.x - self.cur.x,
-                q3.y - self.cur.y
-            )?;
+            ship!(self, "c{} {} {} {} {} {}", d1.x, d1.y, d2.x, d2.y, d3.x, d3.y)?;
         } else {
-            ship!(
-                self,
-                "c{} {} {} {} {} {}",
-                q1.x - self.cur.x,
-                q1.y - self.cur.y,
-                q2.x - self.cur.x,
-                q2.y - self.cur.y,
-                q3.x - self.cur.x,
-                q3.y - self.cur.y
-            )?;
+            ship!(self, "{} {} {} {} {} {}", d1.x, d1.y, d2.x, d2.y, d3.x, d3.y)?;
         }
         self.cur = q3;
         self.last_op = b'c';
@@ -170,7 +158,7 @@ impl<W: Write> SvgWriter<W> {
         self.ship_token("z".as_bytes())
     }
 
-    fn svg_jaggy_path(&mut self, points: &[Point<isize>], absolute_coords: bool) -> Result<()> {
+    fn svg_jaggy_path(&mut self, points: &[Point<usize>], absolute_coords: bool) -> Result<()> {
         if absolute_coords {
             let mut cur = *points.last().unwrap();
             let mut prev = cur;
