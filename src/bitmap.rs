@@ -70,6 +70,9 @@ impl Bitmap {
         self.ptr = self.ptr.wrapping_offset((self.height as isize - 1) * self.dy);
         self.dy = -self.dy;
     }
+    pub(crate) fn clear_excess(&mut self) {
+        // TODO: the words are zeroed, so is this necessary?
+    }
 
     pub fn read_from<R: Read + Seek>(reader: R, threshold: f64) -> Result<Self, ReadError> {
         let r = BmpReader::new(reader).read(threshold)?;
@@ -120,7 +123,9 @@ impl Bitmap {
     /// Corresponds to `BM_PUT(bm, x, y, b)` in Potrace.
     #[inline(always)]
     pub fn try_put(&mut self, x: usize, y: usize, b: bool) {
-        self.word_mut(x, y).map(|w| w.put(x, b));
+        if let Some(w) = self.word_mut(x, y) {
+            w.put(x, b);
+        }
     }
     /// Sets the value of a pixel at X coordinate to specified value.
     ///

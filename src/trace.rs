@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Curve, DPoint, Path, PathTreeList, Point, SegmentTag, Sums, util};
+use crate::{Curve, DPoint, Path, Point, SegmentTag, Sums, util};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Params {
@@ -30,20 +30,14 @@ pub enum TurnPolicy {
 }
 
 pub fn process_path_list(
-    plist: &mut PathTreeList,
+    plist: &mut [Path],
     params: &Params,
     mut progress: Option<&mut dyn FnMut(f64)>,
 ) -> Result<(), ()> {
     let total_progress = {
         if progress.is_some() {
             /* precompute task size for progress estimates */
-            let mut p = &*plist;
-            let mut sum = 0;
-            loop {
-                sum += p.private.len();
-                if let Some(next) = &p.next { p = next } else { break }
-            }
-            sum as f64
+            plist.iter().map(|x| x.len()).sum::<usize>() as f64
         } else {
             0.0
         }
@@ -51,16 +45,13 @@ pub fn process_path_list(
 
     /* call downstream function with each path */
     let mut cur_progress = 0.0;
-    let mut p = plist;
-    loop {
-        process_path(&mut p.private, params, p.is_negative)?;
+    for p in plist {
+        process_path(p, params, p.is_negative)?;
 
         if let Some(progress) = progress.as_mut() {
-            cur_progress += p.private.len() as f64;
+            cur_progress += p.len() as f64;
             progress(cur_progress / total_progress);
         }
-
-        if let Some(next) = &mut p.next { p = next } else { break }
     }
 
     if let Some(progress) = progress {

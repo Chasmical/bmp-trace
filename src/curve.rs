@@ -8,7 +8,6 @@
  */
 
 use crate::{DPoint, Point, util};
-use std::rc::Rc;
 
 /// Corresponds to `privcurve_t` in Potrace.
 // TODO: Putting all of the data into a Segment struct makes the layout slightly more efficient
@@ -108,9 +107,11 @@ pub struct Path {
     // m: usize,                 // int m
     pub(crate) po: Box<[usize]>, // int* po // po[m]
 
-    pub(crate) curve: Curve, // privcurve_t curve
+    pub(crate) curve: Curve,  // privcurve_t curve
     pub(crate) ocurve: Curve, // privcurve_t ocurve
-                             // privcurve_t* fcurve
+    // privcurve_t* fcurve
+    pub(crate) is_negative: bool,
+    pub(crate) area: usize,
 }
 
 impl Path {
@@ -127,20 +128,19 @@ impl Path {
     }
 }
 
-/// Linked list of signed curve segments. Also carries a tree structure.
-///
-/// Corresponds to `potrace_path_t` in Potrace.
-pub struct PathTreeList {
-    pub(crate) area: usize,                         // int area
-    pub(crate) is_negative: bool,                   // int sign
-    pub(crate) next: Option<Box<PathTreeList>>,     // potrace_path_s* next
-    pub(crate) childlist: Option<Rc<PathTreeList>>, // potrace_path_s* childlist
-    pub(crate) sibling: Option<Rc<PathTreeList>>,   // potrace_path_s* sibling
-    pub(crate) private: Box<Path>,                  // potrace_privpath_s* priv
-}
+// /// Linked list of signed curve segments. Also carries a tree structure.
+// ///
+// /// Corresponds to `potrace_path_t` in Potrace.
+// #[derive(Clone, Default)]
+// pub struct PathTreeList {
+//     pub(crate) next: Option<Box<PathTreeList>>,     // potrace_path_s* next
+//     pub(crate) childlist: Option<Rc<PathTreeList>>, // potrace_path_s* childlist
+//     pub(crate) sibling: Option<Rc<PathTreeList>>,   // potrace_path_s* sibling
+//     pub(crate) private: Box<Path>,                  // potrace_privpath_s* priv
+// }
 
-impl PathTreeList {
-    pub const fn curve(&self) -> &Curve {
-        self.private.fcurve()
-    }
-}
+// impl PathTreeList {
+//     pub const fn curve(&self) -> &Curve {
+//         self.private.fcurve()
+//     }
+// }
