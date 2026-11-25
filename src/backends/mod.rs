@@ -149,12 +149,4 @@ mod tests {
             }
         }
     }
-
-    extern crate test;
-    #[bench]
-    fn bench_tracing(b: &mut test::Bencher) {
-        let bm_bytes = std::fs::read("./tests/stanford.pbm").unwrap();
-        let bm = Bitmap::read_from(Cursor::new(bm_bytes), 0.5).unwrap();
-        b.iter(|| trace(&bm, Params::default(), None).unwrap().unwrap());
-    }
 }

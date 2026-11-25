@@ -71,6 +71,10 @@ pub fn bm_to_path_list(
 pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<PathTree>, ()> {
     bm.clear(false);
 
+    // TODO: =====================================================
+    // TODO: ===== Something's wrong here - huge memory leak =====
+    // TODO: =====================================================
+
     let mut plist: *mut PathTree = std::ptr::null_mut();
     unsafe {
         let mut prev: *mut PathTree = std::ptr::null_mut();
