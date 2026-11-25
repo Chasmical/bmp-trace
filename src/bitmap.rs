@@ -51,7 +51,7 @@ impl Bitmap {
         boxed.write_copy_of_slice(unsafe { &*self.as_raw_slice() });
 
         let mut ptr = Box::into_raw(boxed).cast::<Word>();
-        if self.dy < 0 {
+        if self.dy < 0 && self.height != 0 {
             ptr = ptr.wrapping_offset((self.height - 1) as isize * -self.dy)
         }
         Ok(Self { ptr, ..*self })
@@ -80,6 +80,9 @@ impl Bitmap {
     }
 
     pub fn flip(&mut self) {
+        if self.height <= 1 {
+            return;
+        }
         self.ptr = self.ptr.wrapping_offset((self.height as isize - 1) * self.dy);
         self.dy = -self.dy;
     }

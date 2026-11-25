@@ -19,21 +19,21 @@ pub fn adjust_vertices(
     sums: &[Sums],
     polygons: &[usize],
 ) -> Result<Curve, ()> {
-    let n = points.len();
-    let m = polygons.len();
     let origin = points[0].to_f64();
 
-    let mut ctr = util::alloc_default_slice::<Point<f64>>(m)?;
-    let mut dir = util::alloc_default_slice::<Point<f64>>(m)?;
-    let mut q = util::alloc_default_slice::<QuadForm>(m)?;
+    let mut ctr = util::alloc_default_slice::<Point<f64>>(polygons.len())?;
+    let mut dir = util::alloc_default_slice::<Point<f64>>(polygons.len())?;
+    let mut q = util::alloc_default_slice::<QuadForm>(polygons.len())?;
 
-    let mut curve = Curve::try_new(m)?;
+    let mut curve = Curve::try_new(polygons.len())?;
     let seg = &mut *curve.segments;
 
     // Calculate the "optimal" point-slope representation for each line segment
-    for i in 0..m {
-        let j = polygons[(i + 1).rem_euclid(m)];
-        let j = ((j as isize - polygons[i] as isize).rem_euclid(n as isize) as usize) + polygons[i];
+    for i in 0..polygons.len() {
+        let j = polygons[(i + 1) % polygons.len()] as isize - polygons[i] as isize;
+        let j = j.rem_euclid(points.len() as isize) as usize + polygons[i];
+        // TODO: polygons is unsigned, right? And j here is definitely unsigned too, right?
+        // So why does point_slope then have two loops for "unsigning" the i and j args?
         let (ctr_i, dir_i) = point_slope(points, sums, polygons[i] as isize, j as isize);
         ctr[i] = ctr_i;
         dir[i] = dir_i;
@@ -42,7 +42,7 @@ pub fn adjust_vertices(
     let mut v = [0.0; 3];
     // Represent each line segment as a singular quadratic form; the distance of
     // a point (x,y) from the line segment will be (x,y,1)Q(x,y,1)^t, where Q=q[i].
-    for i in 0..m {
+    for i in 0..polygons.len() {
         let d = dir[i].x.powi(2) + dir[i].y.powi(2);
         if d == 0.0 {
             q[i] = QuadForm::default();
@@ -51,9 +51,10 @@ pub fn adjust_vertices(
             v[1] = -dir[i].x;
             v[2] = -v[1] * ctr[i].y - v[0] * ctr[i].x;
 
+            let d = d.recip();
             for l in 0..3 {
                 for k in 0..3 {
-                    q[i][l][k] = v[l] * v[k] / d;
+                    q[i][l][k] = v[l] * v[k] * d;
                 }
             }
         }
@@ -62,13 +63,13 @@ pub fn adjust_vertices(
     // Now calculate the "intersections" of consecutive segments. Instead of using the actual
     // intersection, we find the point within a given unit square which minimizes the square
     // distance to the two lines.
-    for i in 0..m {
+    for i in 0..polygons.len() {
         // Let s be the vertex, in coordinates relative to x0,y0
         let s = points[polygons[i]].to_f64() - origin;
 
         // Intersect segments i-1 and i
 
-        let j = (i as isize - 1).rem_euclid(m as isize) as usize;
+        let j = (i as isize - 1).rem_euclid(polygons.len() as isize) as usize;
 
         let mut qm = QuadForm::default();
         // Add quadratic forms
@@ -104,9 +105,11 @@ pub fn adjust_vertices(
             }
             let d = v[0].powi(2) + v[1].powi(2);
             v[2] = -v[1] * s.y - v[0] * s.x;
+
+            let d = d.recip();
             for l in 0..3 {
                 for k in 0..3 {
-                    qm[l][k] += v[l] * v[k] / d;
+                    qm[l][k] += v[l] * v[k] * d;
                 }
             }
         };
@@ -197,7 +200,7 @@ fn point_slope(
         r += 1;
     }
 
-    let k = (j + 1 - i + r * n) as f64;
+    let k = ((j + 1 - i + r * n) as f64).recip();
 
     // re-bind i, j and n as usize for indexing
     let i = i as usize;
@@ -212,13 +215,13 @@ fn point_slope(
     let xy = sums[j + 1].xy - sums[i].xy + r * sums[n].xy;
     let y2 = sums[j + 1].y2 - sums[i].y2 + r * sums[n].y2;
 
-    let ctr = Point::new(x, y) / k;
+    let ctr = Point::new(x, y) * k;
 
-    let mut a = (x2 - x * x / k) / k;
-    let b = (xy - x * y / k) / k;
-    let mut c = (y2 - y * y / k) / k;
+    let mut a = (x2 - x * x * k) * k;
+    let b = (xy - x * y * k) * k;
+    let mut c = (y2 - y * y * k) * k;
 
-    let lambda2 = (a + c + ((a - c) * (a - c) + 4.0 * b * b).sqrt()) / 2.0;
+    let lambda2 = (a + c + ((a - c) * (a - c) + 4.0 * b * b).sqrt()) * 0.5;
 
     // Now find e.vector for lambda2
     a -= lambda2;

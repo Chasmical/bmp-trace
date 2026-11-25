@@ -62,7 +62,7 @@ pub fn calculate_straight_subpaths(points: &[Point<usize>]) -> Result<Box<[usize
         let mut ct = [0u32; 4];
 
         // Keep track of "directions" that have occured
-        let diff = points[(i + 1).rem_euclid(points.len())].offset_from(points[i]);
+        let diff = points[(i + 1) % points.len()].offset_from(points[i]);
         let dir = (3 + 3 * diff.x + diff.y) / 2;
         ct[dir as usize] += 1;
 
@@ -137,7 +137,8 @@ pub fn calculate_straight_subpaths(points: &[Point<usize>]) -> Result<Box<[usize
             if d > 0 {
                 j = j.min(floor_div(-c, d));
             }
-            pivots[i].write((k1 as isize + j).rem_euclid(points.len() as isize) as usize);
+            // TODO: can this actually wrap? check
+            pivots[i].write(k1.wrapping_add_signed(j) % points.len());
         }
     }
 
@@ -159,7 +160,7 @@ pub fn calculate_straight_subpaths(points: &[Point<usize>]) -> Result<Box<[usize
     let mut lon = unsafe { lon.assume_init() };
 
     for i in (0..points.len()).rev() {
-        if !cyclic((i + 1).rem_euclid(points.len()), j, lon[i]) {
+        if !cyclic((i + 1) % points.len(), j, lon[i]) {
             break;
         }
         lon[i] = j;

@@ -224,7 +224,7 @@ pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<Path
 /// found pixel. Note that this function assumes that the excess bytes have been cleared with
 /// [`Bitmap::clear_excess`].
 fn find_next(bm: &Bitmap, xp: usize, yp: usize) -> Option<(usize, usize)> {
-    let mut x0 = xp & !(Word::BITS - 1);
+    let mut x0 = xp & Word::BITS.wrapping_neg();
     for y in (0..=yp).rev() {
         let mut x = x0;
         while x < bm.width {
@@ -258,12 +258,13 @@ fn find_path(
     let mut diry: isize = -1;
     let mut area: isize = 0;
 
-    // TODO: panics on OOM instead of erroring
     let mut points = Vec::new();
 
     loop {
         // All points' coordinates should be non-negative
         debug_assert!(x >= 0 && y >= 0);
+
+        points.try_reserve(1).or(Err(()))?;
         points.push(Point { x: x as usize, y: y as usize });
 
         // Move to the next point

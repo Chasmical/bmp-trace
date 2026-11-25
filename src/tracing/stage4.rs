@@ -13,12 +13,11 @@ use crate::{Curve, SegmentTag};
 ///
 pub fn smooth_curve(curve: &mut Curve, alphamax: f64) {
     let seg = &mut *curve.segments;
-    let m = seg.len();
 
     // Examine each vertex and find its best fit
-    for i in 0..m {
-        let j = (i + 1).rem_euclid(m);
-        let k = (i + 2).rem_euclid(m);
+    for i in 0..seg.len() {
+        let j = (i + 1) % seg.len();
+        let k = (i + 2) % seg.len();
 
         let v_i = seg[i].vertex;
         let v_j = seg[j].vertex;
@@ -29,10 +28,9 @@ pub fn smooth_curve(curve: &mut Curve, alphamax: f64) {
         let mut alpha;
         let denom = v_i.ddenom(v_k);
         if denom != 0.0 {
-            let dd = v_i.dpara(v_j, v_k) / denom;
-            let dd = dd.abs();
+            let dd = (v_i.dpara(v_j, v_k) / denom).abs();
             alpha = if dd > 1.0 { 1.0 - 1.0 / dd } else { 0.0 };
-            alpha /= 0.75;
+            alpha *= 4.0 / 3.0;
         } else {
             alpha = 4.0 / 3.0;
         }
