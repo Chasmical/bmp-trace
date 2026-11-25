@@ -30,7 +30,8 @@ pub fn calculate_optimal_polygon(
 
     // Calculate clipped paths
     for (i, slot) in clip0.iter_mut().enumerate() {
-        let mut c = (lon[(i - 1).rem_euclid(n)] - 1).rem_euclid(n);
+        let mut c = (lon[(i as isize - 1).rem_euclid(n as isize) as usize] as isize - 1)
+            .rem_euclid(n as isize) as usize;
         if c == i {
             c = (i + 1).rem_euclid(n);
         }
@@ -92,10 +93,10 @@ pub fn calculate_optimal_polygon(
 
     // Read off shortest path
     let mut i = n;
-    let mut j = m - 1;
+    let mut j = m;
     while i > 0 {
         i = prev[i];
-        polygon[j] = i;
+        polygon[j - 1] = i;
         j -= 1;
     }
 

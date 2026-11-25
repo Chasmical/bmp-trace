@@ -49,20 +49,33 @@ impl Bitmap {
     pub fn try_clone(&self) -> Result<Self, ()> {
         let mut boxed = util::alloc_uninit_slice::<Word>(self.len())?;
         boxed.write_copy_of_slice(unsafe { &*self.as_raw_slice() });
-        Ok(Self { ptr: Box::into_raw(boxed).cast(), ..*self })
+
+        let mut ptr = Box::into_raw(boxed).cast::<Word>();
+        if self.dy < 0 {
+            ptr = ptr.wrapping_offset((self.height - 1) as isize * -self.dy)
+        }
+        Ok(Self { ptr, ..*self })
     }
 
     pub fn try_resize(&mut self, new_height: usize) -> Result<(), ()> {
+        let was_flipped = self.dy < 0;
+        if was_flipped {
+            self.flip();
+        }
+
         let old_words = self.take_boxed_slice();
 
         let mut new_words = Vec::new();
         new_words.try_reserve_exact(self.dy.unsigned_abs() * new_height).or(Err(()))?;
         new_words.extend_from_slice(&old_words[..new_words.capacity()]);
+        drop(old_words);
 
         self.ptr = Box::into_raw(new_words.into_boxed_slice()).cast();
         self.height = new_height;
-        drop(old_words);
 
+        if was_flipped {
+            self.flip();
+        }
         Ok(())
     }
 

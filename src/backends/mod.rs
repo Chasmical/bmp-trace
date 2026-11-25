@@ -101,7 +101,7 @@ mod tests {
         backends::{BackendOptions, ImageInfo},
         trace,
     };
-    use std::{ffi::OsStr, io::Cursor};
+    use std::{bstr::ByteStr, ffi::OsStr, io::Cursor};
 
     #[test]
     fn test_directory_files() {
@@ -110,18 +110,22 @@ mod tests {
 
         for f in &files {
             if f.extension() == Some(OsStr::new("pbm")) {
-                let fs = std::fs::read(f).unwrap();
-                let bm = Bitmap::read_from(Cursor::new(fs), 0.5).unwrap();
+                let bm_bytes = std::fs::read(f).unwrap();
+                let bm = Bitmap::read_from(Cursor::new(bm_bytes), 0.5).unwrap();
                 let tree = trace(&bm, Params::default(), None)
                     .expect("tracing shouldn't fail")
                     .expect("tracing should result in at least one path");
 
-                let tests = files.iter().filter(|&t| t != f && t.file_name() == f.file_name());
+                let tests = files.iter().filter(|&t| t != f && t.file_stem() == f.file_stem());
                 for test in tests {
                     let expected = std::fs::read(test).unwrap();
 
                     let opt = BackendOptions::default();
-                    let img_info = ImageInfo::default();
+                    let img_info = ImageInfo {
+                        pix_width: bm.width,
+                        pix_height: bm.height,
+                        ..Default::default()
+                    };
 
                     let ext = test.extension().unwrap().to_str().unwrap();
                     let real = match ext {
@@ -134,10 +138,13 @@ mod tests {
                     let max_len = expected_lines.len().max(real_lines.len());
 
                     for i in 0..max_len {
-                        assert_eq!(expected_lines.get(i), real_lines.get(i));
+                        assert_eq!(
+                            expected_lines.get(i).map(|&b| ByteStr::new(b)),
+                            real_lines.get(i).map(|&b| ByteStr::new(b))
+                        );
                     }
 
-                    println!("{}", "TEST"); // TODO
+                    println!("Tested {:?} => {:?} successfully", f, test);
                 }
             }
         }

@@ -33,7 +33,7 @@ pub fn adjust_vertices(
     // Calculate the "optimal" point-slope representation for each line segment
     for i in 0..m {
         let j = polygons[(i + 1).rem_euclid(m)];
-        let j = ((j - polygons[i]).rem_euclid(n)) + polygons[i];
+        let j = ((j as isize - polygons[i] as isize).rem_euclid(n as isize) as usize) + polygons[i];
         let (ctr_i, dir_i) = point_slope(points, sums, polygons[i] as isize, j as isize);
         ctr[i] = ctr_i;
         dir[i] = dir_i;
@@ -68,7 +68,7 @@ pub fn adjust_vertices(
 
         // Intersect segments i-1 and i
 
-        let j = (i - 1).rem_euclid(m);
+        let j = (i as isize - 1).rem_euclid(m as isize) as usize;
 
         let mut qm = QuadForm::default();
         // Add quadratic forms

@@ -28,7 +28,7 @@ pub fn optimize_curve(curve: &Curve, opt_tolerance: f64) -> Result<Curve, ()> {
     // Pre-calculate convexity: +1 = right turn, -1 = left turn, 0 = corner
     for i in 0..m {
         if seg[i].tag == SegmentTag::CurveTo {
-            convc[i] = seg[(i - 1).rem_euclid(m)]
+            convc[i] = seg[(i as isize - 1).rem_euclid(m as isize) as usize]
                 .vertex
                 .dpara(seg[i].vertex, seg[(i + 1).rem_euclid(m)].vertex)
                 .signum() as isize;
@@ -67,7 +67,8 @@ pub fn optimize_curve(curve: &Curve, opt_tolerance: f64) -> Result<Curve, ()> {
         pen[j] = pen[j - 1];
         len[j] = len[j - 1] + 1;
 
-        for i in (0..=j - 2).rev() {
+        for i in (0..=j as isize - 2).rev() {
+            let i = i as usize;
             let r = opti_penalty(seg, i, (j).rem_euclid(m), opt_tolerance, &convc, &areac);
             if let Ok(o) = r {
                 if len[j] > len[i] + 1 || (len[j] == len[i] + 1 && pen[j] > pen[i] + o.penalty) {
