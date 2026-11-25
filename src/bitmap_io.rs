@@ -177,8 +177,10 @@ impl<R: Read + Seek> BmpReader<R> {
                         for i in 0..bpr {
                             let Ok(b) = self.fgetc() else { break 'eof };
 
-                            bm.word_mut(i * 8, y).unwrap().0 |=
-                                (b as u32) << (8 * (Word::SIZE - 1 - (i % Word::SIZE)));
+                            unsafe {
+                                bm.word_unchecked_mut(i * 8, y).0 |=
+                                    (b as u32) << (8 * (Word::SIZE - 1 - (i % Word::SIZE)))
+                            }
                         }
                     }
                 },
@@ -411,8 +413,10 @@ impl<R: Read + Seek> BmpReader<R> {
                         for i in 0..(bmpinfo.w / 8) as usize {
                             let Ok(mut b) = self.bmp_readint(1) else { break 'eof };
                             b ^= mask;
-                            bm.word_mut(i * 8, y).unwrap().0 |=
-                                b << (8 * (Word::SIZE - 1 - (i % Word::SIZE)));
+                            unsafe {
+                                bm.word_unchecked_mut(i * 8, y).0 |=
+                                    b << (8 * (Word::SIZE - 1 - (i % Word::SIZE)));
+                            }
                         }
                         self.bmp_pad().or(Err(ReadError::Format))?;
                     }
@@ -691,8 +695,10 @@ impl<W: Write> BmpWriter<W> {
         let bpr = bm.width.div_ceil(8);
         for y in (0..bm.height).rev() {
             for i in 0..bpr {
-                let c = (bm.word(i * 8, y).unwrap().0 >> (8 * (Word::SIZE - 1 - (i % Word::SIZE))))
-                    as u8;
+                let c = unsafe {
+                    (bm.word_unchecked(i * 8, y).0 >> (8 * (Word::SIZE - 1 - (i % Word::SIZE))))
+                        as u8
+                };
                 self.inner.write_all(&[c])?;
             }
         }

@@ -35,7 +35,7 @@ pub fn bm_to_path_list(
         yp = y;
 
         /* calculate the sign by looking at the original */
-        let is_negative = !bm.get(x, y).unwrap();
+        let is_negative = unsafe { !bm.get_unchecked(x, y) };
 
         /* calculate the path */
         let p = find_path(&bm1, x, y + 1, is_negative, params.turn_policy)?;
@@ -75,8 +75,8 @@ fn find_next(bm: &Bitmap, xp: usize, yp: usize) -> Option<(usize, usize)> {
     for y in (0..=yp).rev() {
         let mut x = x0;
         while x < bm.width {
-            if bm.word(x, y).unwrap().0 != 0 {
-                while !bm.get(x, y).unwrap() {
+            if unsafe { bm.word_unchecked(x, y).0 } != 0 {
+                while unsafe { !bm.get_unchecked(x, y) } {
                     x += 1;
                 }
                 return Some((x, y));
@@ -125,12 +125,18 @@ fn find_path(
         }
 
         /* determine next direction */
-        let c = bm
-            .get((x + (dirx + diry - 1) / 2) as usize, (y + (diry - dirx - 1) / 2) as usize)
-            .unwrap();
-        let d = bm
-            .get((x + (dirx - diry - 1) / 2) as usize, (y + (diry + dirx - 1) / 2) as usize)
-            .unwrap();
+        let c = unsafe {
+            bm.get_unchecked(
+                (x + (dirx + diry - 1) / 2) as usize,
+                (y + (diry - dirx - 1) / 2) as usize,
+            )
+        };
+        let d = unsafe {
+            bm.get_unchecked(
+                (x + (dirx - diry - 1) / 2) as usize,
+                (y + (diry + dirx - 1) / 2) as usize,
+            )
+        };
 
         if c && !d {
             /* ambiguous turn */
@@ -258,13 +264,13 @@ fn xor_to_ref(bm: &mut Bitmap, x: usize, y: usize, xa: usize) {
     if xhi < xa {
         let mut i = xhi;
         while i < xa {
-            bm.word_mut(i, y).unwrap().0 ^= Word::ALL_BITS.0;
+            unsafe { bm.word_unchecked_mut(i, y).0 ^= Word::ALL_BITS.0 };
             i += Word::BITS;
         }
     } else {
         let mut i = xa;
         while i < xhi {
-            bm.word_mut(i, y).unwrap().0 ^= Word::ALL_BITS.0;
+            unsafe { bm.word_unchecked_mut(i, y).0 ^= Word::ALL_BITS.0 };
             i += Word::BITS;
         }
     }
@@ -272,6 +278,6 @@ fn xor_to_ref(bm: &mut Bitmap, x: usize, y: usize, xa: usize) {
     /* note: the following "if" is needed because x86 treats a<<b as
     a<<(b&31). I spent hours looking for this bug. */
     if xlo != 0 {
-        bm.word_mut(xhi, y).unwrap().0 ^= Word::ALL_BITS.0 << (Word::BITS - xlo);
+        unsafe { bm.word_unchecked_mut(xhi, y).0 ^= Word::ALL_BITS.0 << (Word::BITS - xlo) };
     }
 }

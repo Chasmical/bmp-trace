@@ -94,10 +94,16 @@ impl Bitmap {
         if x >= self.width || y >= self.height {
             return None;
         }
-        Some(unsafe {
-            &*self.ptr.wrapping_offset(y as isize * self.dy).wrapping_add(x / Word::BITS)
-        })
+        Some(unsafe { self.word_unchecked(x, y) })
     }
+    /// Returns the word at specified X and Y coordinates, without bounds-checking.
+    ///
+    /// Corresponds to `bm_index(bm, x, y)` in Potrace.
+    #[inline(always)]
+    pub unsafe fn word_unchecked(&self, x: usize, y: usize) -> &Word {
+        unsafe { &*self.ptr.wrapping_offset(y as isize * self.dy).wrapping_add(x / Word::BITS) }
+    }
+
     /// Returns the word at specified X and Y coordinates.
     ///
     /// Corresponds to `bm_index(bm, x, y)` in Potrace.
@@ -106,9 +112,14 @@ impl Bitmap {
         if x >= self.width || y >= self.height {
             return None;
         }
-        Some(unsafe {
-            &mut *self.ptr.wrapping_offset(y as isize * self.dy).wrapping_add(x / Word::BITS)
-        })
+        Some(unsafe { self.word_unchecked_mut(x, y) })
+    }
+    /// Returns the word at specified X and Y coordinates, without bounds-checking.
+    ///
+    /// Corresponds to `bm_index(bm, x, y)` in Potrace.
+    #[inline(always)]
+    pub unsafe fn word_unchecked_mut(&mut self, x: usize, y: usize) -> &mut Word {
+        unsafe { &mut *self.ptr.wrapping_offset(y as isize * self.dy).wrapping_add(x / Word::BITS) }
     }
 
     /// Returns the value of a pixel at X and Y coordinates.
@@ -118,6 +129,14 @@ impl Bitmap {
     pub fn get(&self, x: usize, y: usize) -> Option<bool> {
         Some(self.word(x, y)?.get(x))
     }
+    /// Returns the value of a pixel at X and Y coordinates, without bounds-checking.
+    ///
+    /// Corresponds to `BM_GET(bm, x, y)` in Potrace.
+    #[inline(always)]
+    pub unsafe fn get_unchecked(&self, x: usize, y: usize) -> bool {
+        unsafe { self.word_unchecked(x, y) }.get(x)
+    }
+
     /// Tries to set the value of a pixel at X coordinate to specified value.
     ///
     /// Corresponds to `BM_PUT(bm, x, y, b)` in Potrace.
@@ -127,12 +146,12 @@ impl Bitmap {
             w.put(x, b);
         }
     }
-    /// Sets the value of a pixel at X coordinate to specified value.
+    /// Sets the value of a pixel at X coordinate to specified value, without bounds-checking.
     ///
     /// Corresponds to `BM_UPUT(bm, x, y, b)` in Potrace.
     #[inline(always)]
     pub unsafe fn put_unchecked(&mut self, x: usize, y: usize, b: bool) {
-        unsafe { self.word_mut(x, y).unwrap_unchecked() }.put(x, b);
+        unsafe { self.word_unchecked_mut(x, y) }.put(x, b);
     }
 }
 
