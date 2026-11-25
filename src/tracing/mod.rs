@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Bitmap, Curve, Path, Point};
+use crate::{Bitmap, Curve, PathTree, Point};
 
 mod decomposition;
 mod preparation;
@@ -64,11 +64,11 @@ pub fn trace(
     bm: &Bitmap,
     params: Params,
     mut progress: Option<&mut dyn FnMut(f64)>,
-) -> Result<Vec<Path>, ()> {
+) -> Result<Option<PathTree>, ()> {
     let sub_progress: Option<&mut dyn FnMut(f64)> = {
         if let Some(progress) = progress.as_mut() { Some(&mut |x| progress(x * 0.1)) } else { None }
     };
-    let mut paths = decomposition::bm_to_path_list(bm, &params, sub_progress)?;
+    let (mut paths, bm1) = decomposition::bm_to_path_list(bm, &params, sub_progress)?;
 
     let total_progress = paths.iter().map(|x| x.points.len()).sum::<usize>() as f64;
 
@@ -82,7 +82,7 @@ pub fn trace(
         }
     }
 
-    Ok(paths)
+    decomposition::path_list_to_tree(paths, bm1)
 }
 
 fn process_path(points: &[Point<isize>], is_negative: bool, params: &Params) -> Result<Curve, ()> {

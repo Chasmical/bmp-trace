@@ -31,16 +31,16 @@ impl Bitmap {
     pub fn len(&self) -> usize {
         self.dy.unsigned_abs() * self.height
     }
-    fn as_raw_slice(&self) -> &[Word] {
+    fn as_raw_slice(&self) -> *mut [Word] {
         let ptr = if self.dy >= 0 || self.height == 0 {
-            self.ptr.cast_const()
+            self.ptr
         } else {
-            self.ptr.cast_const().wrapping_offset((self.height - 1) as isize * self.dy)
+            self.ptr.wrapping_offset((self.height - 1) as isize * self.dy)
         };
-        unsafe { std::slice::from_raw_parts(ptr, self.len()) }
+        std::ptr::slice_from_raw_parts_mut(ptr, self.len())
     }
     fn take_boxed_slice(&mut self) -> Box<[Word]> {
-        let boxed = unsafe { Box::from_raw((&raw const *self.as_raw_slice()).cast_mut()) };
+        let boxed = unsafe { Box::from_raw(self.as_raw_slice()) };
         self.ptr = std::ptr::dangling_mut();
         self.height = 0;
         boxed
@@ -48,7 +48,7 @@ impl Bitmap {
 
     pub fn try_clone(&self) -> Result<Self, ()> {
         let mut boxed = util::alloc_uninit_slice::<Word>(self.len())?;
-        boxed.write_copy_of_slice(self.as_raw_slice());
+        boxed.write_copy_of_slice(unsafe { &*self.as_raw_slice() });
         Ok(Self { ptr: Box::into_raw(boxed).cast(), ..*self })
     }
 
@@ -72,6 +72,9 @@ impl Bitmap {
     }
     pub(crate) fn clear_excess(&mut self) {
         // TODO: the words are zeroed, so is this necessary?
+    }
+    pub(crate) fn clear(&mut self, fill: bool) {
+        unsafe { &mut *self.as_raw_slice() }.fill(if fill { Word::ALL_BITS } else { Word(0) });
     }
 
     pub fn read_from<R: Read + Seek>(reader: R, threshold: f64) -> Result<Self, ReadError> {

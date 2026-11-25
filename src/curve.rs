@@ -104,3 +104,54 @@ pub struct Path {
     pub(crate) area: usize,
     pub(crate) curve: Curve,
 }
+
+#[derive(Clone, Default)]
+pub struct PathTree {
+    pub(crate) path: Path,
+    pub(crate) next: *mut PathTree,
+    pub(crate) first_child: *mut PathTree,
+    pub(crate) next_sibling: *mut PathTree,
+}
+
+impl PathTree {
+    pub fn new(path: Path) -> Self {
+        Self { path, ..Default::default() }
+    }
+    pub fn next(&self) -> Option<&PathTree> {
+        unsafe { self.next.as_ref() }
+    }
+    pub fn first_child(&self) -> Option<&PathTree> {
+        unsafe { self.first_child.as_ref() }
+    }
+    pub fn next_sibling(&self) -> Option<&PathTree> {
+        unsafe { self.next_sibling.as_ref() }
+    }
+
+    pub fn children(&self) -> PathTreeChildren<'_> {
+        PathTreeChildren { child: self.first_child() }
+    }
+}
+
+impl Drop for PathTree {
+    fn drop(&mut self) {
+        let mut p_next = self.next;
+        while let Some(p) = unsafe { p_next.as_mut() } {
+            p_next = p.next;
+            drop(unsafe { Box::from_raw((&raw const *p).cast_mut()) });
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct PathTreeChildren<'a> {
+    child: Option<&'a PathTree>,
+}
+
+impl<'a> Iterator for PathTreeChildren<'a> {
+    type Item = &'a PathTree;
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.child?;
+        self.child = next.first_child();
+        Some(next)
+    }
+}

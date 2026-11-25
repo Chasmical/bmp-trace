@@ -7,7 +7,8 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Bitmap, Curve, Params, Path, Point, TurnPolicy, Word};
+use crate::{Bitmap, Curve, Params, Path, PathTree, Point, TurnPolicy, Word};
+use std::mem::ManuallyDrop;
 
 /// Decomposition: decompose the given bitmap into a list of paths.
 ///
@@ -15,7 +16,7 @@ pub fn bm_to_path_list(
     bm: &Bitmap,
     params: &Params,
     mut progress: Option<&mut dyn FnMut(f64)>,
-) -> Result<Vec<Path>, ()> {
+) -> Result<(Vec<Path>, Bitmap), ()> {
     let mut bm1 = bm.clone();
 
     // Ensure that the byte padding on the right is set to 0, as the fast pixel search relies on it.
@@ -54,7 +55,171 @@ pub fn bm_to_path_list(
         progress(1.0);
     }
 
-    Ok(paths)
+    Ok((paths, bm1))
+}
+
+/// Gives a tree structure to the given path list, based on "insideness" testing, i.e. path A is
+/// considered "below" path B if it is inside path B. The input pathlist is assumed to be ordered
+/// so that "outer" paths occur before "inner" paths. The tree structure is stored in the
+/// "childlist" and "sibling" components of the path_t structure. The linked list structure is also
+/// changed so that negative path components are listed immediately after their positive parent.
+/// Note: some backends may ignore the tree structure, others may use it e.g. to group path
+/// components. We assume that in the input, point 0 of each path is an "upper left" corner of the
+/// path, as returned by bm_to_path_list. This makes it easy to find an "interior" point. The bm
+/// argument should be a bitmap of the correct size (large enough to hold all the paths), and will
+/// be used as scratch space.
+pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<PathTree>, ()> {
+    bm.clear(false);
+
+    let mut plist: *mut PathTree = std::ptr::null_mut();
+    unsafe {
+        let mut prev: *mut PathTree = std::ptr::null_mut();
+
+        // Save original "next" pointers
+        for path in paths {
+            let boxed = Box::into_raw(Box::new(PathTree::new(path)));
+            if let Some(p) = prev.as_mut() {
+                p.next_sibling = boxed;
+            } else {
+                plist = boxed;
+            }
+            prev = boxed;
+        }
+        // Note: the Vec<Path> is dropped here, but the Path data was moved into boxes, which were
+        // leaked, and now we have a plist, pointing at the first element in the linked list.
+
+        let mut heap = plist;
+
+        // The heap holds a list of lists of paths. Use "childlist" field for outer list,
+        // "next" field for inner list. Each of the sublists is to be turned into a tree.
+        // This code is messy, but it is actually fast. Each path is rendered exactly once.
+        // We use the heap to get a tail recursive algorithm: the heap holds a list of pathlists
+        // which still need to be transformed.
+
+        while !heap.is_null() {
+            // Unlink first sublist
+            let mut cur = heap;
+            heap = (&*heap).first_child;
+            (&mut *cur).first_child = std::ptr::null_mut();
+
+            // Unlink first path
+            let head = cur;
+            cur = (&*cur).next;
+            (&mut *head).next = std::ptr::null_mut();
+
+            // Render path
+            xor_path(&mut bm, &(&*head).path.points);
+            let bbox = set_bbox_path(&(&*head).path.points);
+
+            // Now do insideness test for each element of cur; append it to (&mut *head).childlist
+            // if it's inside head, else append it to (&mut *head).next.
+            let mut hook_in = &mut (&mut *head).first_child;
+            let mut hook_out = &mut (&mut *head).next;
+
+            let mut p_next = cur;
+            while let Some(p) = p_next.as_mut() {
+                cur = p.next;
+                p.next = std::ptr::null_mut();
+
+                if p.path.points[0].y <= bbox.y0 {
+                    p.next = *hook_out;
+                    *hook_out = p;
+                    hook_out = &mut p.next;
+                    // Append the remainder of the list to hook_out
+                    *hook_out = cur;
+                    break;
+                }
+                if bm
+                    .get(p.path.points[0].x as usize, p.path.points[0].y as usize - 1)
+                    .unwrap_or(false)
+                {
+                    p.next = *hook_in;
+                    *hook_in = p;
+                    hook_in = &mut p.next;
+                } else {
+                    p.next = *hook_out;
+                    *hook_out = p;
+                    hook_out = &mut p.next;
+                }
+
+                p_next = cur;
+            }
+
+            // Clear bm
+            clear_bm_with_bbox(&mut bm, bbox);
+
+            // Now schedule (&*head).childlist and (&*head).next for further processing
+            if let Some(next) = (&*head).next.as_mut() {
+                next.first_child = heap;
+                heap = next;
+            }
+            if let Some(first_child) = (&*head).first_child.as_mut() {
+                first_child.first_child = heap;
+                heap = first_child;
+            }
+        }
+
+        // Copy sibling structure from "next" to "sibling" component
+        let mut p_next = plist;
+        while let Some(p) = p_next.as_mut() {
+            let p1 = p.next_sibling;
+            p.next_sibling = p.next;
+            p_next = p1;
+        }
+
+        // Reconstruct a new linked list ("next") structure from tree ("childlist", "sibling")
+        // structure. This code is slightly messy, because we use a heap to make it tail recursive:
+        // the heap contains a list of childlists which still need to be processed.
+        heap = plist;
+        if let Some(heap) = heap.as_mut() {
+            heap.next = std::ptr::null_mut(); // heap is a linked list of childlists
+        }
+        plist = std::ptr::null_mut();
+        let mut plist_hook = &mut plist;
+
+        let mut heap_next = heap;
+        while let Some(heap) = heap_next.as_mut() {
+            let mut heap1 = heap.next;
+
+            let mut p_next = heap_next;
+            while let Some(p) = p_next.as_mut() {
+                // p is a positive path, append to linked list
+                p.next = *plist_hook;
+                *plist_hook = p;
+                plist_hook = &mut p.next;
+
+                // Go through its children
+                let mut p1_next = p.first_child;
+                while let Some(p1) = p1_next.as_mut() {
+                    // Append to linked list
+                    p1.next = *plist_hook;
+                    *plist_hook = p1;
+                    plist_hook = &mut p1.next;
+                    // Append its childlist to heap, if non-empty
+                    if let Some(first_child) = p1.first_child.as_mut() {
+                        let mut _hook = &mut heap1;
+                        while !(*_hook).is_null() {
+                            _hook = &mut (&mut **_hook).next;
+                        }
+                        first_child.next = *_hook;
+                        *_hook = first_child;
+                    }
+                    p1_next = p1.next_sibling;
+                }
+                p_next = p.next_sibling;
+            }
+            heap_next = heap1;
+        }
+    }
+
+    // Re-create the box for the linked list's first element, and drop only the box,
+    // keeping the contents (which is the rest of the linked list) in their boxes.
+    if let Some(plist) = unsafe { plist.cast::<ManuallyDrop<PathTree>>().as_mut() } {
+        let boxed = unsafe { Box::<ManuallyDrop<PathTree>>::from_raw(plist) };
+        Ok(Some(ManuallyDrop::into_inner(*boxed)))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Finds the next set pixel in a row <= y. Pixels are searched first left-to-right, then top-down.
@@ -239,5 +404,42 @@ fn xor_to_ref(bm: &mut Bitmap, x: usize, y: usize, xa: usize) {
     // XOR the last one word if needed
     if xlo != 0 {
         unsafe { bm.word_unchecked_mut(xhi, y).0 ^= Word::ALL_BITS.0 << (Word::BITS - xlo) };
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct Bbox {
+    x0: isize,
+    x1: isize,
+    y0: isize,
+    y1: isize,
+}
+
+/// Finds the bounding box of a given path. Path is assumed to be of non-zero length.
+fn set_bbox_path(points: &[Point<isize>]) -> Bbox {
+    debug_assert!(!points.is_empty());
+
+    let mut bbox = Bbox { y0: isize::MAX, y1: 0, x0: isize::MAX, x1: 0 };
+
+    for &Point { x, y } in points {
+        bbox.x0 = bbox.x0.min(x);
+        bbox.x1 = bbox.x1.max(x);
+        bbox.y0 = bbox.y0.min(y);
+        bbox.y1 = bbox.y1.max(y);
+    }
+
+    bbox
+}
+
+/// Clears the bitmap, assuming the bounding box is set correctly
+/// (faster than clearing the whole bitmap).
+fn clear_bm_with_bbox(bm: &mut Bitmap, bbox: Bbox) {
+    let imin = bbox.x0 as usize / Word::BITS;
+    let imax = (bbox.x1 as usize).div_ceil(Word::BITS);
+
+    for y in bbox.y0..bbox.y1 {
+        for i in imin..imax {
+            unsafe { bm.word_unchecked_mut(i, y as usize).0 = 0 };
+        }
     }
 }

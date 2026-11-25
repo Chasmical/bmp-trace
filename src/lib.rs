@@ -10,6 +10,7 @@
 // TODO: remove these warning suppressions later
 #![allow(clippy::result_unit_err)]
 #![allow(clippy::len_without_is_empty)]
+#![allow(clippy::missing_safety_doc)]
 
 mod bitmap;
 mod bitmap_io;
