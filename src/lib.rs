@@ -11,7 +11,7 @@
 #![allow(clippy::result_unit_err)]
 #![allow(clippy::len_without_is_empty)]
 #![allow(clippy::missing_safety_doc)]
-#![cfg_attr(test, feature(bstr))]
+#![cfg_attr(test, feature(test, bstr))]
 
 pub mod backends;
 mod bitmap;
