@@ -33,7 +33,7 @@ pub fn bm_to_path_list(
         yp = y;
 
         // Calculate the sign by looking at the original
-        let is_negative = unsafe { !bm.get_unchecked(x, y) };
+        let is_negative = !bm.get(x, y).unwrap_or(false);
 
         // Calculate the path points
         let path = find_path(&bm1, x, y + 1, is_negative, params.turn_policy)?;
@@ -232,7 +232,7 @@ fn find_next(bm: &Bitmap, xp: usize, yp: usize) -> Option<(usize, usize)> {
         let mut x = x0;
         while x < bm.width {
             if unsafe { bm.word_unchecked(x, y).0 } != 0 {
-                while unsafe { !bm.get_unchecked(x, y) } {
+                while !bm.get(x, y).unwrap_or(false) {
                     x += 1;
                 }
                 return Some((x, y));
@@ -278,18 +278,12 @@ fn find_path(
         }
 
         // Determine the next direction
-        let c = unsafe {
-            bm.get_unchecked(
-                (x + (dirx + diry - 1) / 2) as usize,
-                (y + (diry - dirx - 1) / 2) as usize,
-            )
-        };
-        let d = unsafe {
-            bm.get_unchecked(
-                (x + (dirx - diry - 1) / 2) as usize,
-                (y + (diry + dirx - 1) / 2) as usize,
-            )
-        };
+        let c = bm
+            .get((x + (dirx + diry - 1) / 2) as usize, (y + (diry - dirx - 1) / 2) as usize)
+            .unwrap_or(false);
+        let d = bm
+            .get((x + (dirx - diry - 1) / 2) as usize, (y + (diry + dirx - 1) / 2) as usize)
+            .unwrap_or(false);
 
         if c && !d {
             // Ambiguous turn
@@ -355,10 +349,14 @@ fn majority(bm: &Bitmap, x: isize, y: isize) -> bool {
         // Check at "radius" i
         let mut ct = 0;
         for a in (-i + 1)..=(i - 1) {
-            ct += if bm.get((x + a) as usize, (y + i - 1) as usize).unwrap() { 1 } else { -1 };
-            ct += if bm.get((x + i - 1) as usize, (y + a - 1) as usize).unwrap() { 1 } else { -1 };
-            ct += if bm.get((x + a - 1) as usize, (y + i) as usize).unwrap() { 1 } else { -1 };
-            ct += if bm.get((x - i) as usize, (y + a) as usize).unwrap() { 1 } else { -1 };
+            fn get(bm: &Bitmap, x: isize, y: isize) -> bool {
+                bm.get(x as usize, y as usize).unwrap_or(false)
+            }
+
+            ct += if get(bm, x + a, y + i - 1) { 1 } else { -1 };
+            ct += if get(bm, x + i - 1, y + a - 1) { 1 } else { -1 };
+            ct += if get(bm, x + a - 1, y + i) { 1 } else { -1 };
+            ct += if get(bm, x - i, y + a) { 1 } else { -1 };
         }
         if ct > 0 {
             return true;
