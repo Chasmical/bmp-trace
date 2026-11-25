@@ -168,7 +168,13 @@ fn find_path(
     }
 
     /* allocate new path object */
-    Ok(Path { pt: pt.into_boxed_slice(), area: area as usize, is_negative, ..Default::default() })
+    Ok(Path {
+        p0: pt[0],
+        pt: pt.into_boxed_slice(),
+        area: area as usize,
+        is_negative,
+        ..Default::default()
+    })
 }
 
 /* deterministically and efficiently hash (x,y) into a pseudo-random bit */

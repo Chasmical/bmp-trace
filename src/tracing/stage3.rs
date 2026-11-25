@@ -7,15 +7,15 @@
  * See the file LICENSE for details.
  */
 
-use crate::{DPoint, Path, util};
+use crate::{Path, Point, util};
 
 pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     let n = pp.len();
     let m = pp.po.len();
-    let origin = DPoint::from(pp.p0);
+    let origin = pp.p0.to_f64();
 
-    let mut ctr = util::alloc_default_slice::<DPoint>(m)?;
-    let mut dir = util::alloc_default_slice::<DPoint>(m)?;
+    let mut ctr = util::alloc_default_slice::<Point<f64>>(m)?;
+    let mut dir = util::alloc_default_slice::<Point<f64>>(m)?;
     let mut q = util::alloc_default_slice::<QuadForm>(m)?;
 
     pp.curve.init(m)?;
@@ -60,7 +60,7 @@ pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     the two lines. */
     for i in 0..m {
         /* let s be the vertex, in coordinates relative to x0/y0 */
-        let s = DPoint::from(pt[po[i]]) - origin;
+        let s = pt[po[i]].to_f64() - origin;
 
         /* intersect segments i-1 and i */
 
@@ -80,7 +80,7 @@ pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
 
             let det = qm[0][0] * qm[1][1] - qm[0][1] * qm[1][0];
             if det != 0.0 {
-                break DPoint::new(
+                break Point::new(
                     -qm[0][2] * qm[1][1] + qm[1][2] * qm[0][1],
                     qm[0][2] * qm[1][0] - qm[1][2] * qm[0][0],
                 ) / det;
@@ -165,7 +165,7 @@ pub fn adjust_vertices(pp: &mut Path) -> Result<(), ()> {
     Ok(())
 }
 
-fn point_slope(path: &mut Path, mut i: isize, mut j: isize) -> (DPoint, DPoint) {
+fn point_slope(path: &mut Path, mut i: isize, mut j: isize) -> (Point<f64>, Point<f64>) {
     /* assume i < j */
 
     let n = path.pt.len() as isize;
@@ -205,7 +205,7 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize) -> (DPoint, DPoint) 
     let xy = sums[j + 1].xy - sums[i].xy + r * sums[n].xy;
     let y2 = sums[j + 1].y2 - sums[i].y2 + r * sums[n].y2;
 
-    let ctr = DPoint::new(x, y) / k;
+    let ctr = Point::new(x, y) / k;
 
     let mut a = (x2 - x * x / k) / k;
     let b = (xy - x * y / k) / k;
@@ -218,17 +218,17 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize) -> (DPoint, DPoint) 
     c -= lambda2;
 
     /* sometimes this can happen when k=4: the two eigenvalues coincide */
-    let mut dir = DPoint::ZERO;
+    let mut dir = Point::default();
 
     if a.abs() >= c.abs() {
         let l = (a * a + b * b).sqrt();
         if l != 0.0 {
-            dir = DPoint::new(-b, a) / l;
+            dir = Point::new(-b, a) / l;
         }
     } else {
         let l = (c * c + b * b).sqrt();
         if l != 0.0 {
-            dir = DPoint::new(-c, b) / l;
+            dir = Point::new(-c, b) / l;
         }
     }
 
@@ -237,7 +237,7 @@ fn point_slope(path: &mut Path, mut i: isize, mut j: isize) -> (DPoint, DPoint) 
 
 type QuadForm = [[f64; 3]; 3];
 
-fn quadform(q: QuadForm, w: DPoint) -> f64 {
+fn quadform(q: QuadForm, w: Point<f64>) -> f64 {
     let v = [w.x, w.y, 1.0];
     let mut sum = 0.0;
 

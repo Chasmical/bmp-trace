@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{DPoint, Point, util};
+use crate::{Point, util};
 
 /// Corresponds to `privcurve_t` in Potrace.
 // TODO: Putting all of the data into a Segment struct makes the layout slightly more efficient
@@ -32,12 +32,12 @@ pub enum SegmentTag {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Segment {
-    pub(crate) tag: SegmentTag, // int* tag
-    pub(crate) c: [DPoint; 3],  // dpoint_t[3]* c
-    pub(crate) vertex: DPoint,  // dpoint_t* vertex
-    pub(crate) alpha: f64,      // double* alpha
-    pub(crate) alpha0: f64,     // double* alpha0
-    pub(crate) beta: f64,       // double* beta
+    pub(crate) tag: SegmentTag,    // int* tag
+    pub(crate) c: [Point<f64>; 3], // dpoint_t[3]* c
+    pub(crate) vertex: Point<f64>, // dpoint_t* vertex
+    pub(crate) alpha: f64,         // double* alpha
+    pub(crate) alpha0: f64,        // double* alpha0
+    pub(crate) beta: f64,          // double* beta
 }
 
 impl Curve {
@@ -72,8 +72,8 @@ impl std::ops::Add for Sums {
         }
     }
 }
-impl std::ops::AddAssign<DPoint> for Sums {
-    fn add_assign(&mut self, rhs: DPoint) {
+impl std::ops::AddAssign<Point<f64>> for Sums {
+    fn add_assign(&mut self, rhs: Point<f64>) {
         self.x += rhs.x;
         self.y += rhs.y;
         self.x2 += rhs.x * rhs.x;
@@ -98,10 +98,10 @@ impl std::ops::Sub for Sums {
 #[derive(Clone, Default)]
 pub struct Path {
     // len: usize,                // int len
-    pub(crate) pt: Box<[Point]>,  // point_t* pt // pt[len]
-    pub(crate) lon: Box<[usize]>, // int* lon    // lon[len]
+    pub(crate) pt: Box<[Point<isize>]>, // point_t* pt // pt[len]
+    pub(crate) lon: Box<[usize]>,       // int* lon    // lon[len]
 
-    pub(crate) p0: Point,         // int x0, y0
+    pub(crate) p0: Point<isize>,  // int x0, y0
     pub(crate) sums: Box<[Sums]>, // sums_t* sums // sums[len+1]
 
     // m: usize,                 // int m

@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{DPoint, Path, Point, Sums, util};
+use crate::{Path, Point, Sums, util};
 
 /// Stage 2: calculate the optimal polygon (Sec. 2.2.2-2.2.4).
 ///
@@ -108,7 +108,7 @@ pub fn best_polygon(pp: &mut Path) -> Result<(), ()> {
 /// Auxiliary function: calculate the penalty of an edge from i to j in the given path.
 /// This needs the "lon" and "sum*" data.
 ///
-fn penalty3(points: &[Point], sums: &[Sums], i: usize, mut j: usize) -> f64 {
+fn penalty3(points: &[Point<isize>], sums: &[Sums], i: usize, mut j: usize) -> f64 {
     let n = points.len();
 
     debug_assert!(i < j && j <= n); /* assume 0<=i<j<=n  */
@@ -122,8 +122,8 @@ fn penalty3(points: &[Point], sums: &[Sums], i: usize, mut j: usize) -> f64 {
         sums[j + 1] - sums[i]
     };
 
-    let p = DPoint::from(points[i] + points[j]) / 2.0 - DPoint::from(points[0]);
-    let e = DPoint::from(points[j] - points[i]);
+    let p = (points[i] + points[j]).to_f64() / 2.0 - points[0].to_f64();
+    let e = (points[j] - points[i]).to_f64();
 
     let a = (sum.x2 - 2.0 * sum.x * p.x) / k + p.x * p.x;
     let b = (sum.xy - sum.x * p.y - sum.y * p.x) / k + p.x * p.y;

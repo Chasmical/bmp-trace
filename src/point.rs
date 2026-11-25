@@ -7,63 +7,40 @@
  * See the file LICENSE for details.
  */
 
-/// A 2D [`isize`] point.
+use std::ops::{Add, Div, Mul, Sub};
+
+/// A generic 2D point.
 ///
-/// Corresponds to `point_t` in Potrace.
+/// Corresponds to `point_t`/`dpoint_t` in Potrace.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Point {
-    pub x: isize,
-    pub y: isize,
+pub struct Point<T> {
+    pub x: T,
+    pub y: T,
 }
 
-/// A 2D [`f64`] point.
-///
-/// Corresponds to `dpoint_t` in Potrace.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct DPoint {
-    pub x: f64,
-    pub y: f64,
-}
-
-impl From<Point> for DPoint {
-    /// Converts [`Point`] to [`DPoint`].
-    ///
-    /// Corresponds to `dpoint_t dpoint(point_t)` in Potrace.
-    // CHANGE: Implemented the `dpoint` function as a From<> impl.
-    #[inline]
-    fn from(value: Point) -> Self {
-        Self { x: value.x as f64, y: value.y as f64 }
-    }
-}
-impl From<DPoint> for Point {
-    fn from(value: DPoint) -> Self {
-        Self { x: value.x as isize, y: value.y as isize }
-    }
-}
-
-impl Point {
-    pub const ZERO: Self = Self { x: 0, y: 0 };
-
-    pub const fn new(x: isize, y: isize) -> Self {
+impl<T> Point<T> {
+    pub const fn new(x: T, y: T) -> Self {
         Self { x, y }
+    }
+}
+
+impl Point<isize> {
+    pub fn signum(self) -> Self {
+        Self { x: self.x.signum(), y: self.y.signum() }
     }
     /// Returns `p1 × p2`.
     ///
     /// Corresponds to `int xprod(point_t, point_t)` in Potrace.
-    pub const fn xprod(self, p2: Self) -> isize {
+    pub fn xprod(self, p2: Self) -> isize {
         self.x * p2.y - self.y * p2.x
     }
-    pub const fn signum(self) -> Self {
-        Self { x: self.x.signum(), y: self.y.signum() }
+
+    pub const fn to_f64(self) -> Point<f64> {
+        Point { x: self.x as f64, y: self.y as f64 }
     }
 }
 
-impl DPoint {
-    pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
-
-    pub const fn new(x: f64, y: f64) -> Self {
-        Self { x, y }
-    }
+impl Point<f64> {
     /// Range over the straight line segment `a..=b` when lambda ranges over `0..=1`.
     ///
     /// Corresponds to `dpoint_t interval(double, dpoint_t, dpoint_t)` in Potrace.
@@ -201,52 +178,27 @@ impl DPoint {
     }
 }
 
-impl std::ops::Add for Point {
+impl<T: Add<Output = T>> Add for Point<T> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         Self { x: self.x + rhs.x, y: self.y + rhs.y }
     }
 }
-impl std::ops::Sub for Point {
+impl<T: Sub<Output = T>> Sub for Point<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Self { x: self.x - rhs.x, y: self.y - rhs.y }
     }
 }
-impl std::ops::Mul<isize> for Point {
+impl<T: Copy + Mul<Output = T>> Mul<T> for Point<T> {
     type Output = Self;
-    fn mul(self, rhs: isize) -> Self::Output {
+    fn mul(self, rhs: T) -> Self::Output {
         Self { x: self.x * rhs, y: self.y * rhs }
     }
 }
-impl std::ops::Div<isize> for Point {
+impl<T: Copy + Div<Output = T>> Div<T> for Point<T> {
     type Output = Self;
-    fn div(self, rhs: isize) -> Self::Output {
-        Self { x: self.x / rhs, y: self.y / rhs }
-    }
-}
-
-impl std::ops::Add for DPoint {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
-        Self { x: self.x + rhs.x, y: self.y + rhs.y }
-    }
-}
-impl std::ops::Sub for DPoint {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self { x: self.x - rhs.x, y: self.y - rhs.y }
-    }
-}
-impl std::ops::Mul<f64> for DPoint {
-    type Output = Self;
-    fn mul(self, rhs: f64) -> Self::Output {
-        Self { x: self.x * rhs, y: self.y * rhs }
-    }
-}
-impl std::ops::Div<f64> for DPoint {
-    type Output = Self;
-    fn div(self, rhs: f64) -> Self::Output {
+    fn div(self, rhs: T) -> Self::Output {
         Self { x: self.x / rhs, y: self.y / rhs }
     }
 }

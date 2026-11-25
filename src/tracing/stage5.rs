@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{DPoint, Path, SegmentTag, util};
+use crate::{Path, Point, SegmentTag, util};
 
 /// Stage 5: Curve optimization (Sec. 2.4).
 ///
@@ -119,7 +119,7 @@ pub fn opticurve(pp: &mut Path, opt_tolerance: f64) -> Result<(), ()> {
 #[derive(Default, Clone, Copy)]
 struct OptiPenalty {
     penalty: f64,
-    c: [DPoint; 2],
+    c: [Point<f64>; 2],
     t: f64,
     s: f64,
     alpha: f64,
@@ -237,7 +237,7 @@ fn opti_penalty(
         if t < -0.5 {
             return Err(());
         }
-        let pt = DPoint::bezier(t, p0, p1, p2, p3);
+        let pt = Point::bezier(t, p0, p1, p2, p3);
         let d = seg[k].vertex.distance(seg[k1].vertex);
         if d == 0.0 {
             /* this should never happen */
@@ -264,7 +264,7 @@ fn opti_penalty(
         if t < -0.5 {
             return Err(());
         }
-        let pt = DPoint::bezier(t, p0, p1, p2, p3);
+        let pt = Point::bezier(t, p0, p1, p2, p3);
         let d = seg[k].c[2].distance(seg[k1].c[2]);
         if d == 0.0 {
             /* this should never happen */

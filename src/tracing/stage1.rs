@@ -82,7 +82,7 @@ pub fn calc_lon(pp: &mut Path) -> Result<(), ()> {
         let dir = (3 + 3 * diff.x + diff.y) / 2;
         ct[dir as usize] += 1;
 
-        let mut constraint = [Point::ZERO; 2];
+        let mut constraint = [Point::default(); 2];
 
         /* find the next k such that no straight line from i to k */
         let mut k = nc[i];
