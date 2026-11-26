@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Curve, SegmentTag};
+use crate::types::{Curve, SegmentTag};
 
 /// Stage 4: smoothing and corner analysis (Sec. 2.3.3).
 ///

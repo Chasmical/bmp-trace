@@ -7,7 +7,10 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Bitmap, Word, util};
+use crate::{
+    types::{Bitmap, Word},
+    util,
+};
 use std::io::{Read, Seek, Write};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

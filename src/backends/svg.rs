@@ -8,8 +8,8 @@
  */
 
 use crate::{
-    Curve, PathTree, Point, SegmentTag,
-    backends::{BackendOptions, Grouping, ImageInfo},
+    backends::{BackendOptions, Grouping},
+    types::{Curve, ImageInfo, PathTree, Point, SegmentTag},
 };
 use std::{
     io::{Cursor, Result, Write},

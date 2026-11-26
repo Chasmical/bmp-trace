@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Bitmap, Curve, PathTree, Point};
+use crate::types::{Bitmap, Curve, PathTree, Point};
 
 mod decomposition;
 mod preparation;

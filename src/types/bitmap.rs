@@ -7,7 +7,10 @@
  * See the file LICENSE for details.
  */
 
-use crate::{BmpReader, BmpWriter, ReadError, util};
+use crate::{
+    types::{BmpReader, BmpWriter, ReadError},
+    util,
+};
 use std::io::{Read, Seek, Write};
 
 /// Bitmap data.
@@ -31,6 +34,13 @@ impl Bitmap {
     pub fn len(&self) -> usize {
         self.dy.unsigned_abs() * self.height
     }
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     fn as_raw_slice(&self) -> *mut [Word] {
         let ptr = if self.dy >= 0 || self.height == 0 {
             self.ptr

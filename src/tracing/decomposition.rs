@@ -7,7 +7,10 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Bitmap, Curve, Params, Path, PathTree, Point, TurnPolicy, Word};
+use crate::{
+    tracing::{Params, TurnPolicy},
+    types::{Bitmap, Curve, Path, PathTree, Point, Word},
+};
 use std::mem::ManuallyDrop;
 
 /// Decomposition: decompose the given bitmap into a list of paths.

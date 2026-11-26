@@ -7,7 +7,10 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Curve, Point, Segment, SegmentTag, util};
+use crate::{
+    types::{Curve, Point, Segment, SegmentTag},
+    util,
+};
 
 /// Stage 5: curve optimization (Sec. 2.4).
 ///

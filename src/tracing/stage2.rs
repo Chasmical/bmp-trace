@@ -7,7 +7,10 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Point, Sums, util};
+use crate::{
+    types::{Point, Sums},
+    util,
+};
 
 /// Stage 2: calculate the optimal polygon (Sec. 2.2.2-2.2.4).
 ///

@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Point, Sums};
+use crate::types::{Point, Sums};
 
 /// Preparation: compute the sums of point coordinates (later used for rapid summing).
 ///

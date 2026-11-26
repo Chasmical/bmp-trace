@@ -7,7 +7,10 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Curve, Point, Sums, util};
+use crate::{
+    types::{Curve, Point, Sums},
+    util,
+};
 
 /// Stage 3: vertex adjustment (Sec. 2.3.1).
 ///

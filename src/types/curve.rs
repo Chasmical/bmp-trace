@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Point, util};
+use crate::{types::Point, util};
 
 /// Corresponds to `privcurve_t` in Potrace.
 // TODO: Putting all of the data into a Segment struct makes the layout slightly more efficient
@@ -126,11 +126,14 @@ impl PathTree {
         unsafe { self.next_sibling.as_ref() }
     }
 
-    pub fn children(&self) -> PathTreeIter<'_> {
-        PathTreeIter { sibling: self.first_child() }
+    pub fn children(&self) -> PathSiblingsIter<'_> {
+        PathSiblingsIter { sibling: self.first_child() }
     }
-    pub fn self_and_siblings(&self) -> PathTreeIter<'_> {
-        PathTreeIter { sibling: Some(self) }
+    pub fn self_and_siblings(&self) -> PathSiblingsIter<'_> {
+        PathSiblingsIter { sibling: Some(self) }
+    }
+    pub fn iter(&self) -> PathFlatIter<'_> {
+        PathFlatIter { next: Some(self) }
     }
 }
 
@@ -143,11 +146,25 @@ impl Drop for PathTree {
 }
 
 #[derive(Default, Clone)]
-pub struct PathTreeIter<'a> {
+pub struct PathFlatIter<'a> {
+    next: Option<&'a PathTree>,
+}
+
+impl<'a> Iterator for PathFlatIter<'a> {
+    type Item = &'a PathTree;
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.next?;
+        self.next = next.next();
+        Some(next)
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct PathSiblingsIter<'a> {
     sibling: Option<&'a PathTree>,
 }
 
-impl<'a> Iterator for PathTreeIter<'a> {
+impl<'a> Iterator for PathSiblingsIter<'a> {
     type Item = &'a PathTree;
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.sibling?;

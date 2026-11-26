@@ -97,7 +97,7 @@ impl Point<f64> {
     }
     /// Returns `(p1-p0)*(p2-p0)`.
     ///
-    /// Corresponds to `double cprod(dpoint_t, dpoint_t, dpoint_t)` in Potrace.
+    /// Corresponds to `double iprod(dpoint_t, dpoint_t, dpoint_t)` in Potrace.
     #[inline]
     pub fn iprod(self, p1: Self, p2: Self) -> f64 {
         let x1 = p1.x - self.x;
@@ -108,7 +108,7 @@ impl Point<f64> {
     }
     /// Returns `(p1-p0)*(p3-p2)`.
     ///
-    /// Corresponds to `double cprod(dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
+    /// Corresponds to `double iprod1(dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
     #[inline]
     pub fn iprod1(self, p1: Self, p2: Self, p3: Self) -> f64 {
         let x1 = p1.x - self.x;

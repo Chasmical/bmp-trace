@@ -7,7 +7,7 @@
  * See the file LICENSE for details.
  */
 
-use crate::{Point, util};
+use crate::{types::Point, util};
 
 const INFTY: isize = 10000000;
 

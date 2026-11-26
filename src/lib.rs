@@ -14,16 +14,7 @@
 #![cfg_attr(test, feature(bstr))]
 
 pub mod backends;
-mod bitmap;
-mod bitmap_io;
-mod curve;
-mod point;
-mod tracing;
-
-pub use bitmap::*;
-pub use bitmap_io::*;
-pub use curve::*;
-pub use point::*;
-pub use tracing::*;
+pub mod tracing;
+pub mod types;
 
 mod util;

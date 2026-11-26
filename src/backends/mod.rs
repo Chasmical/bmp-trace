@@ -1,4 +1,13 @@
-use crate::Point;
+/*
+ * Copyright (C) 2001-2019 Peter Selinger
+ * Copyright (C) 2026 Chasmical
+ *
+ * Adapted and modified for Rust from the original project Potrace.
+ * This file is part of bmp-trace and is licensed under GNU GPLv2.
+ * See the file LICENSE for details.
+ */
+
+use crate::types::Color;
 
 mod svg;
 
@@ -15,6 +24,14 @@ pub struct BackendOptions {
     opaque: bool,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Grouping {
+    Flat = 0,
+    #[default]
+    Connected = 1,
+    Hierarchical = 2,
+}
+
 impl Default for BackendOptions {
     fn default() -> Self {
         Self {
@@ -29,77 +46,12 @@ impl Default for BackendOptions {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct ImageInfo {
-    pub pix_width: usize,
-    pub pix_height: usize,
-    pub width: f64,
-    pub height: f64,
-    pub left_margin: f64,
-    pub right_margin: f64,
-    pub top_margin: f64,
-    pub bottom_margin: f64,
-    pub transform: Transformation,
-}
-#[derive(Debug, Default, Clone)]
-pub struct Transformation {
-    pub bb: [f64; 2],
-    pub orig: [f64; 2],
-    pub x: [f64; 2],
-    pub y: [f64; 2],
-    pub scale: Point<f64>,
-}
-
-// #[derive(Debug, Default, Clone, Copy, PartialEq)]
-// pub struct Dimension {
-//     value: f64,
-//     dimension: f64, // in pt, or 0 if not given
-// }
-// impl Dimension {
-//     pub fn inches(inches: f64) -> Self {
-//         Self { value: inches, dimension: 72.0 }
-//     }
-//     pub fn centimeters(centimeters: f64) -> Self {
-//         Self { value: centimeters, dimension: 72.0 / 2.54 }
-//     }
-//     pub fn millimeters(millimeters: f64) -> Self {
-//         Self { value: millimeters, dimension: 72.0 / 25.4 }
-//     }
-//     pub fn points(points: f64) -> Self {
-//         Self { value: points, dimension: 1.0 }
-//     }
-// }
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum Grouping {
-    Flat = 0,
-    #[default]
-    Connected = 1,
-    Hierarchical = 2,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Color(u32);
-
-impl Color {
-    pub const BLACK: Self = Self(0x000000);
-    pub const WHITE: Self = Self(0xFFFFFF);
-
-    pub fn from_rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(u32::from_be_bytes([0, r, g, b]))
-    }
-    pub fn to_rgb(self) -> (u8, u8, u8) {
-        let [_, r, g, b] = self.0.to_be_bytes();
-        (r, g, b)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
-        Bitmap, Params,
-        backends::{BackendOptions, ImageInfo},
-        trace,
+        backends::BackendOptions,
+        tracing::{Params, trace},
+        types::{Bitmap, ImageInfo},
     };
     use std::{bstr::ByteStr, ffi::OsStr, io::Cursor};
 
