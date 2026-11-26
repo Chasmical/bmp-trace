@@ -96,7 +96,7 @@ impl std::ops::Sub for Sums {
 /// (not their centers). The path point `(x,y)` is the lower left corner of the pixel `(x,y)`.
 ///
 /// Corresponds to `potrace_privpath_t` in Potrace.
-#[derive(Clone, Default)]
+#[derive(Default, Clone)]
 pub struct Path {
     pub(crate) points: Vec<Point<usize>>,
     pub(crate) is_negative: bool,
@@ -104,7 +104,7 @@ pub struct Path {
     pub(crate) curve: Curve,
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct PathTree {
     pub(crate) path: Path,
     pub(crate) next: *mut PathTree,
@@ -136,10 +136,8 @@ impl PathTree {
 
 impl Drop for PathTree {
     fn drop(&mut self) {
-        let mut p_next = self.next;
-        while let Some(p) = unsafe { p_next.as_mut() } {
-            p_next = p.next;
-            drop(unsafe { Box::from_raw((&raw const *p).cast_mut()) });
+        if let Some(p) = unsafe { std::mem::take(&mut self.next).as_mut() } {
+            drop(unsafe { Box::from_raw(p) });
         }
     }
 }

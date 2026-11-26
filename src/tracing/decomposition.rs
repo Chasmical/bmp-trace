@@ -71,10 +71,6 @@ pub fn bm_to_path_list(
 pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<PathTree>, ()> {
     bm.clear(false);
 
-    // TODO: =====================================================
-    // TODO: ===== Something's wrong here - huge memory leak =====
-    // TODO: =====================================================
-
     let mut plist: *mut PathTree = std::ptr::null_mut();
     unsafe {
         let mut prev: *mut PathTree = std::ptr::null_mut();
@@ -83,6 +79,7 @@ pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<Path
         for path in paths {
             let boxed = Box::into_raw(Box::new(PathTree::new(path)));
             if let Some(p) = prev.as_mut() {
+                p.next = boxed;
                 p.next_sibling = boxed;
             } else {
                 plist = boxed;
@@ -200,7 +197,7 @@ pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<Path
                     if let Some(first_child) = p1.first_child.as_mut() {
                         let mut _hook = &mut heap1;
                         while !(*_hook).is_null() {
-                            _hook = &mut (&mut **_hook).next;
+                            _hook = &mut (&mut *(*_hook)).next;
                         }
                         first_child.next = *_hook;
                         *_hook = first_child;
