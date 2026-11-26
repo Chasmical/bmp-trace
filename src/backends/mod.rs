@@ -74,8 +74,8 @@ mod tests {
 
                     let opt = BackendOptions::default();
                     let img_info = ImageInfo {
-                        pix_width: bm.width,
-                        pix_height: bm.height,
+                        px_width: bm.width(),
+                        px_height: bm.height(),
                         ..Default::default()
                     };
 

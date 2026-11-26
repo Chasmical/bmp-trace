@@ -13,12 +13,49 @@ use crate::{
 };
 use std::io::{Read, Seek, Write};
 
+impl Bitmap {
+    pub fn read_from<R: Read + Seek>(reader: R, threshold: f64) -> Result<Self, ReadError> {
+        let res = BmpReader::new(reader).read(threshold)?;
+        if let Some(err) = res.1 {
+            return Err(err);
+        }
+        Ok(res.0)
+    }
+    pub fn write_to<W: Write>(&self, writer: W) -> std::io::Result<()> {
+        BmpWriter::new(writer).write(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadError {
     Unsupported = -4,
     Empty = -3,
     Format = -2,
     Alloc = -1,
+}
+
+#[derive(Default)]
+struct BmpInfo {
+    file_size: u32,
+    reserved: u32,
+    data_offset: u32,
+    info_size: u32,
+    w: u32,
+    h: u32,
+    planes: u32,
+    bits: u32,
+    comp: u32,
+    image_size: u32,
+    x_pixels_per_m: u32,
+    y_pixels_per_m: u32,
+    n_colors: u32,
+    colors_important: u32,
+    red_mask: u32,
+    green_mask: u32,
+    blue_mask: u32,
+    alpha_mask: u32,
+    ctbits: u32,
+    topdown: i32,
 }
 
 pub struct BmpReader<R> {
@@ -247,7 +284,7 @@ impl<R: Read + Seek> BmpReader<R> {
         }
 
         let err = if unexpected_eof {
-            bm.try_resize(real_height).or(Err(ReadError::Alloc))?;
+            bm.try_resize_mem_aligned(real_height).or(Err(ReadError::Alloc))?;
             Some(ReadError::Format)
         } else {
             None
@@ -665,7 +702,7 @@ impl<R: Read + Seek> BmpReader<R> {
         }
 
         let err = if unexpected_eof {
-            bm.try_resize(real_height).or(Err(ReadError::Alloc))?;
+            bm.try_resize_mem_aligned(real_height).or(Err(ReadError::Alloc))?;
             Some(ReadError::Format)
         } else {
             /* skip any potential junk after the data section, but don't
@@ -693,10 +730,10 @@ impl<W: Write> BmpWriter<W> {
 
     pub fn write(&mut self, bm: &Bitmap) -> std::io::Result<()> {
         writeln!(self.inner, "P4")?;
-        writeln!(self.inner, "{} {}", bm.width, bm.height)?;
+        writeln!(self.inner, "{} {}", bm.width(), bm.height())?;
 
-        let bpr = bm.width.div_ceil(8);
-        for y in (0..bm.height).rev() {
+        let bpr = bm.width().div_ceil(8);
+        for y in (0..bm.height()).rev() {
             for i in 0..bpr {
                 let c = unsafe {
                     (bm.word_unchecked(i * 8, y).0 >> (8 * (Word::SIZE - 1 - (i % Word::SIZE))))
@@ -707,28 +744,4 @@ impl<W: Write> BmpWriter<W> {
         }
         Ok(())
     }
-}
-
-#[derive(Default)]
-struct BmpInfo {
-    file_size: u32,
-    reserved: u32,
-    data_offset: u32,
-    info_size: u32,
-    w: u32,
-    h: u32,
-    planes: u32,
-    bits: u32,
-    comp: u32,
-    image_size: u32,
-    x_pixels_per_m: u32,
-    y_pixels_per_m: u32,
-    n_colors: u32,
-    colors_important: u32,
-    red_mask: u32,
-    green_mask: u32,
-    blue_mask: u32,
-    alpha_mask: u32,
-    ctbits: u32,
-    topdown: i32,
 }

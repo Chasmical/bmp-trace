@@ -30,7 +30,7 @@ pub fn bm_to_path_list(
 
     // Iterate through path components:
     let mut xp = 0;
-    let mut yp = bm1.height - 1;
+    let mut yp = bm1.height() - 1;
     while let Some((x, y)) = find_next(&bm1, xp, yp) {
         xp = x;
         yp = y;
@@ -50,7 +50,7 @@ pub fn bm_to_path_list(
         }
 
         if let Some(progress) = progress.as_mut() {
-            progress((1.0 - y as f64) / bm1.height as f64);
+            progress((1.0 - y as f64) / bm1.height() as f64);
         }
     }
 
@@ -72,7 +72,7 @@ pub fn bm_to_path_list(
 /// argument should be a bitmap of the correct size (large enough to hold all the paths), and will
 /// be used as scratch space.
 pub fn path_list_to_tree(paths: Vec<Path>, mut bm: Bitmap) -> Result<Option<PathTree>, ()> {
-    bm.clear(false);
+    bm.fill(false);
 
     let mut plist: *mut PathTree = std::ptr::null_mut();
     unsafe {
@@ -231,7 +231,7 @@ fn find_next(bm: &Bitmap, xp: usize, yp: usize) -> Option<(usize, usize)> {
     let mut x0 = xp & Word::BITS.wrapping_neg();
     for y in (0..=yp).rev() {
         let mut x = x0;
-        while x < bm.width {
+        while x < bm.width() {
             if unsafe { bm.word_unchecked(x, y).0 } != 0 {
                 while !bm.get(x, y).unwrap_or(false) {
                     x += 1;
@@ -441,7 +441,7 @@ fn clear_bm_with_bbox(bm: &mut Bitmap, bbox: Bbox) {
 
     for y in bbox.y0..bbox.y1 {
         for i in imin..imax {
-            unsafe { bm.word_unchecked_mut(i, y).0 = 0 };
+            unsafe { bm.word_unchecked_mut(i * Word::BITS, y).0 = 0 };
         }
     }
 }
