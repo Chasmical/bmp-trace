@@ -109,23 +109,27 @@ pub fn calculate_optimal_polygon(
 fn penalty3(points: &[Point<usize>], sums: &[Sums], i: usize, mut j: usize) -> f64 {
     debug_assert!(i < j && j <= points.len());
 
-    let k = ((j + 1 - i) as f64).recip();
+    let k = (j + 1 - i) as f64;
 
-    let sum = if j >= points.len() {
+    let sum = if j < points.len() {
+        sums[j + 1] - sums[i]
+    } else {
         j -= points.len();
         sums[j + 1] - sums[i] + sums[points.len()]
-    } else {
-        sums[j + 1] - sums[i]
     };
 
     let p = (points[i] + points[j]).to_f64() * 0.5 - points[0].to_f64();
-    let e = points[j].offset_from(points[i]).to_f64();
+    let e = Point {
+        y: points[j].x as isize - points[i].x as isize,
+        x: -(points[j].y as isize - points[i].y as isize),
+    }
+    .to_f64();
 
-    let a = (sum.x2 - 2.0 * sum.x * p.x) * k + p.x * p.x;
-    let b = (sum.xy - sum.x * p.y - sum.y * p.x) * k + p.x * p.y;
-    let c = (sum.y2 - 2.0 * sum.y * p.y) * k + p.y * p.y;
+    let a = (sum.x2 - 2.0 * sum.x * p.x) / k + p.x * p.x;
+    let b = (sum.xy - sum.x * p.y - sum.y * p.x) / k + p.x * p.y;
+    let c = (sum.y2 - 2.0 * sum.y * p.y) / k + p.y * p.y;
 
-    let s = e.y * e.y * a - 2.0 * e.y * e.x * b + e.x * e.x * c;
+    let s = e.x * e.x * a - 2.0 * e.x * e.y * b + e.y * e.y * c;
 
     s.sqrt()
 }

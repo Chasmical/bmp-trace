@@ -42,7 +42,6 @@ pub fn adjust_vertices(
         dir[i] = dir_i;
     }
 
-    let mut v = [0.0; 3];
     // Represent each line segment as a singular quadratic form; the distance of
     // a point (x,y) from the line segment will be (x,y,1)Q(x,y,1)^t, where Q=q[i].
     for i in 0..polygons.len() {
@@ -50,14 +49,12 @@ pub fn adjust_vertices(
         if d == 0.0 {
             q[i] = QuadForm::default();
         } else {
-            v[0] = dir[i].y;
-            v[1] = -dir[i].x;
+            let mut v = [dir[i].y, -dir[i].x, 0.0];
             v[2] = -v[1] * ctr[i].y - v[0] * ctr[i].x;
 
-            let d = d.recip();
             for l in 0..3 {
                 for k in 0..3 {
-                    q[i][l][k] = v[l] * v[k] * d;
+                    q[i][l][k] = v[l] * v[k] / d;
                 }
             }
         }
@@ -96,29 +93,25 @@ pub fn adjust_vertices(
 
             // Matrix is singular - lines are parallel. Add another, orthogonal axis,
             // through the center of the unit square.
-            if qm[0][0] > qm[1][1] {
-                v[0] = -qm[0][1];
-                v[1] = qm[0][0];
+            let mut v = if qm[0][0] > qm[1][1] {
+                [-qm[0][1], qm[0][0], 0.0]
             } else if qm[1][1] != 0.0 {
-                v[0] = -qm[1][1];
-                v[1] = qm[1][0];
+                [-qm[1][1], qm[1][0], 0.0]
             } else {
-                v[0] = 1.0;
-                v[1] = 0.0;
-            }
+                [1.0, 0.0, 0.0]
+            };
             let d = v[0].powi(2) + v[1].powi(2);
             v[2] = -v[1] * s.y - v[0] * s.x;
 
-            let d = d.recip();
             for l in 0..3 {
                 for k in 0..3 {
-                    qm[l][k] += v[l] * v[k] * d;
+                    qm[l][k] += v[l] * v[k] / d;
                 }
             }
         };
 
-        let mut dx = (w.x - s.x).abs();
-        let mut dy = (w.y - s.y).abs();
+        let dx = (w.x - s.x).abs();
+        let dy = (w.y - s.y).abs();
         if dx <= 0.5 && dy <= 0.5 {
             seg[i].vertex = w + origin;
             continue;
@@ -133,10 +126,10 @@ pub fn adjust_vertices(
                 // Value of the y-coordinate
                 w.y = s.y - 0.5 + z as f64;
                 w.x = -(qm[0][1] * w.y + qm[0][2]) / qm[0][0];
-                dx = (w.x - s.x).abs();
-                let cand = quadform(qm, w);
-                if dx <= 0.5 && cand < min {
-                    min = cand;
+                let dx = (w.x - s.x).abs();
+                let candidate = quadform(qm, w);
+                if dx <= 0.5 && candidate < min {
+                    min = candidate;
                     min_p = w;
                 }
             }
@@ -147,7 +140,7 @@ pub fn adjust_vertices(
                 // Value of the x-coordinate
                 w.x = s.x - 0.5 + z as f64;
                 w.y = -(qm[1][0] * w.x + qm[1][2]) / qm[1][1];
-                dy = (w.y - s.y).abs();
+                let dy = (w.y - s.y).abs();
                 let candidate = quadform(qm, w);
                 if dy <= 0.5 && candidate < min {
                     min = candidate;
@@ -203,7 +196,7 @@ fn point_slope(
         r += 1;
     }
 
-    let k = ((j + 1 - i + r * n) as f64).recip();
+    let k = (j + 1 - i + r * n) as f64;
 
     // re-bind i, j and n as usize for indexing
     let i = i as usize;
@@ -218,11 +211,11 @@ fn point_slope(
     let xy = sums[j + 1].xy - sums[i].xy + r * sums[n].xy;
     let y2 = sums[j + 1].y2 - sums[i].y2 + r * sums[n].y2;
 
-    let ctr = Point::new(x, y) * k;
+    let ctr = Point::new(x, y) / k;
 
-    let mut a = (x2 - x * x * k) * k;
-    let b = (xy - x * y * k) * k;
-    let mut c = (y2 - y * y * k) * k;
+    let mut a = (x2 - x * x / k) / k;
+    let b = (xy - x * y / k) / k;
+    let mut c = (y2 - y * y / k) / k;
 
     let lambda2 = (a + c + ((a - c) * (a - c) + 4.0 * b * b).sqrt()) * 0.5;
 

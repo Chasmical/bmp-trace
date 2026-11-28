@@ -9,8 +9,8 @@
 
 use crate::types::{PathTree, Point, SegmentTag};
 
-#[derive(Debug, Default, Clone)]
-pub struct Transformation {
+#[derive(Debug, Clone)]
+pub struct Transform {
     pub bb: [f64; 2],
     pub orig: [f64; 2],
     pub x: [f64; 2],
@@ -18,14 +18,21 @@ pub struct Transformation {
     pub scale: Point<f64>,
 }
 
-impl Transformation {
-    pub fn from_rect(width: f64, height: f64) -> Self {
+impl Transform {
+    pub fn new(width: f64, height: f64) -> Self {
         Self {
             bb: [width, height],
             orig: [0.0, 0.0],
             x: [1.0, 0.0],
             y: [0.0, 1.0],
             scale: Point { x: 1.0, y: 1.0 },
+        }
+    }
+
+    pub fn apply(&self, p: Point<f64>) -> Point<f64> {
+        Point {
+            x: self.orig[0] + p.x * self.x[0] + p.y * self.y[0],
+            y: self.orig[1] + p.x * self.x[1] + p.y * self.y[1],
         }
     }
 
@@ -41,7 +48,7 @@ impl Transformation {
         self.scale.x *= scale;
         self.scale.y *= scale;
     }
-    pub fn scale_to_size(&mut self, width: f64, height: f64) {
+    pub fn rescale_to_size(&mut self, width: f64, height: f64) {
         let xsc = width / self.bb[0];
         let ysc = height / self.bb[1];
 

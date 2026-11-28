@@ -359,7 +359,7 @@ fn majority(bm: &Bitmap, x: isize, y: isize) -> bool {
 
             ct += if get(bm, x + a, y + i - 1) { 1 } else { -1 };
             ct += if get(bm, x + i - 1, y + a - 1) { 1 } else { -1 };
-            ct += if get(bm, x + a - 1, y + i) { 1 } else { -1 };
+            ct += if get(bm, x + a - 1, y - i) { 1 } else { -1 };
             ct += if get(bm, x - i, y + a) { 1 } else { -1 };
         }
         if ct > 0 {

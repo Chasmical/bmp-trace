@@ -236,10 +236,7 @@ fn opti_penalty(
     let mut k = (i + 1) % seg.len();
     while k != j {
         k1 = (k + 1) % seg.len();
-        let t = p0.tangent(p1, p2, p3, seg[k].vertex, seg[k1].vertex);
-        if t < -0.5 {
-            return Err(());
-        }
+        let t = p0.tangent(p1, p2, p3, seg[k].vertex, seg[k1].vertex).ok_or(())?;
         let point = Point::bezier(t, p0, p1, p2, p3);
         let d = seg[k].vertex.distance(seg[k1].vertex);
         if d == 0.0 {
@@ -263,10 +260,8 @@ fn opti_penalty(
     let mut k = i;
     while k != j {
         k1 = (k + 1) % seg.len();
-        let t = p0.tangent(p1, p2, p3, seg[k].control_points[2], seg[k1].control_points[2]);
-        if t < -0.5 {
-            return Err(());
-        }
+        let t =
+            p0.tangent(p1, p2, p3, seg[k].control_points[2], seg[k1].control_points[2]).ok_or(())?;
         let point = Point::bezier(t, p0, p1, p2, p3);
         let d = seg[k].control_points[2].distance(seg[k1].control_points[2]);
         if d == 0.0 {

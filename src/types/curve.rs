@@ -9,7 +9,6 @@
 
 use crate::{types::Point, util};
 
-/// Corresponds to `privcurve_t` in Potrace.
 // TODO: Putting all of the data into a Segment struct makes the layout slightly more efficient
 // (only need to store one length), but may reduce the performance gains due to memory locality.
 // This will need to be benchmarked and compared.
@@ -21,10 +20,8 @@ pub struct Curve {
 /// Enum for segment tags.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentTag {
-    /// Corresponds to `POTRACE_CORNER` in Potrace.
     #[default]
     Corner,
-    /// Corresponds to `POTRACE_CURVETO` in Potrace.
     CurveTo,
 }
 
@@ -40,15 +37,12 @@ pub struct Segment {
 
 impl Curve {
     /// Initializes this curve to the given size.
-    ///
-    /// Corresponds to `int privcurve_init(privcurve_t*, int)` in Potrace.
     pub fn try_new(len: usize) -> Result<Self, ()> {
         let segments = util::alloc_default_slice(len)?;
         Ok(Self { segments })
     }
 }
 
-/// Corresponds to `sums_t` in Potrace.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Sums {
     pub(crate) x: f64,
@@ -94,8 +88,6 @@ impl std::ops::Sub for Sums {
 
 /// A path is represented as an array of points, which are thought to lie on the corners of pixels
 /// (not their centers). The path point `(x,y)` is the lower left corner of the pixel `(x,y)`.
-///
-/// Corresponds to `potrace_privpath_t` in Potrace.
 #[derive(Default, Clone)]
 pub struct Path {
     pub(crate) points: Vec<Point<usize>>,

@@ -7,37 +7,63 @@
  * See the file LICENSE for details.
  */
 
-use crate::types::Transformation;
+use crate::types::{Point, Transform};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ImageInfo {
-    pub pix_width: usize,
-    pub pix_height: usize,
-    pub width: f64,
-    pub height: f64,
-    pub left_margin: f64,
-    pub right_margin: f64,
-    pub top_margin: f64,
-    pub bottom_margin: f64,
-    pub transform: Transformation,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    pub(crate) margin_left: f64,
+    pub(crate) margin_right: f64,
+    pub(crate) margin_top: f64,
+    pub(crate) margin_bottom: f64,
+    pub(crate) transform: Transform,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct Dimension {
-    value: f64,
-    dimension: f64, // in pt, or 0 if not given
-}
-impl Dimension {
-    pub fn inches(inches: f64) -> Self {
-        Self { value: inches, dimension: 72.0 }
+impl ImageInfo {
+    pub fn new(width: f64, height: f64) -> Self {
+        assert!(width.is_finite() && height.is_finite());
+
+        Self {
+            width,
+            height,
+            margin_left: 0.0,
+            margin_right: 0.0,
+            margin_top: 0.0,
+            margin_bottom: 0.0,
+            transform: Transform::new(width, height),
+        }
     }
-    pub fn centimeters(centimeters: f64) -> Self {
-        Self { value: centimeters, dimension: 72.0 / 2.54 }
+
+    pub fn page_width(&self) -> f64 {
+        self.transform.bb[0] + self.margin_left + self.margin_right
     }
-    pub fn millimeters(millimeters: f64) -> Self {
-        Self { value: millimeters, dimension: 72.0 / 25.4 }
+    pub fn page_height(&self) -> f64 {
+        self.transform.bb[1] + self.margin_top + self.margin_bottom
     }
-    pub fn points(points: f64) -> Self {
-        Self { value: points, dimension: 1.0 }
+    pub fn origin_top_left(&self) -> Point<f64> {
+        Point {
+            x: self.transform.orig[0] + self.margin_left,
+            y: self.page_height() - self.transform.orig[1] - self.margin_bottom,
+        }
+    }
+    pub fn origin_bottom_left(&self) -> Point<f64> {
+        Point {
+            x: self.transform.orig[0] + self.margin_left,
+            y: self.transform.orig[1] + self.margin_bottom,
+        }
+    }
+
+    pub fn calculate_dimensions(width: usize, height: usize) -> Self {
+        let imginfo = Self::new(
+            if width == 0 { 1.0 } else { width as f64 },
+            if height == 0 { 1.0 } else { height as f64 },
+        );
+
+        let mut used_default_scaling = false;
+
+        // TODO: how the hell do i do this
+
+        imginfo
     }
 }

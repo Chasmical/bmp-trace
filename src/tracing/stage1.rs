@@ -138,7 +138,7 @@ pub fn calculate_straight_subpaths(points: &[Point<usize>]) -> Result<Box<[usize
                 j = j.min(floor_div(-c, d));
             }
             // TODO: can this actually wrap? check
-            pivots[i].write(k1.wrapping_add_signed(j) % points.len());
+            pivots[i].write((k1 as isize + j).rem_euclid(points.len() as isize) as usize);
         }
     }
 

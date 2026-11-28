@@ -64,37 +64,32 @@ impl<W: Write> SvgWriter<W> {
         self.inner
     }
 
-    fn unit(&self, p: Point<f64>) -> Point<usize> {
-        Point {
-            x: (p.x * self.opt.unit + 0.5).floor() as usize,
-            y: (p.y * self.opt.unit + 0.5).floor() as usize,
-        }
-    }
-
     fn ship_token(&mut self, token: &[u8]) -> Result<()> {
-        if !self.newline {
-            if self.column + token.len() + 1 > 75 {
-                writeln!(self.inner)?;
-                self.column = 0;
-            } else {
-                write!(self.inner, " ")?;
-                self.column += 1;
+        for part in token.split(|&x| x == b' ') {
+            if !self.newline {
+                if self.column + part.len() + 1 > 75 {
+                    writeln!(self.inner)?;
+                    self.column = 0;
+                } else {
+                    write!(self.inner, " ")?;
+                    self.column += 1;
+                }
             }
+            self.inner.write_all(part)?;
+            self.column += part.len();
+            self.newline = false;
         }
-        self.inner.write_all(token)?;
-        self.column += token.len();
-        self.newline = false;
         Ok(())
     }
 
     fn svg_moveto(&mut self, p: Point<f64>) -> Result<()> {
-        self.cur = self.unit(p);
+        self.cur = self.opt.round_point_to_unit(p);
         ship!(self, "M{} {}", self.cur.x, self.cur.y)?;
         self.last_op = b'M';
         Ok(())
     }
     fn svg_rmoveto(&mut self, p: Point<f64>) -> Result<()> {
-        let q = self.unit(p);
+        let q = self.opt.round_point_to_unit(p);
         let delta = q.offset_from(self.cur);
         ship!(self, "m{} {}", delta.x, delta.y)?;
         self.cur = q;
@@ -102,7 +97,7 @@ impl<W: Write> SvgWriter<W> {
         Ok(())
     }
     fn svg_lineto(&mut self, p: Point<f64>) -> Result<()> {
-        let q = self.unit(p);
+        let q = self.opt.round_point_to_unit(p);
         let delta = q.offset_from(self.cur);
 
         if self.last_op != b'l' {
@@ -115,9 +110,9 @@ impl<W: Write> SvgWriter<W> {
         Ok(())
     }
     fn svg_curveto(&mut self, p1: Point<f64>, p2: Point<f64>, p3: Point<f64>) -> Result<()> {
-        let q1 = self.unit(p1);
-        let q2 = self.unit(p2);
-        let q3 = self.unit(p3);
+        let q1 = self.opt.round_point_to_unit(p1);
+        let q2 = self.opt.round_point_to_unit(p2);
+        let q3 = self.opt.round_point_to_unit(p3);
 
         let d1 = q1.offset_from(self.cur);
         let d2 = q2.offset_from(self.cur);
@@ -134,22 +129,27 @@ impl<W: Write> SvgWriter<W> {
     }
 
     fn svg_path(&mut self, curve: &Curve, absolute_coords: bool) -> Result<()> {
-        let c = curve.segments.last().unwrap().control_points;
+        let start = curve.segments.last().unwrap().control_points;
 
         if absolute_coords {
-            self.svg_moveto(c[2])?;
+            self.svg_moveto(start[2])?;
         } else {
-            self.svg_rmoveto(c[2])?;
+            self.svg_rmoveto(start[2])?;
         }
 
         for seg in &curve.segments {
             match seg.tag {
                 SegmentTag::Corner => {
-                    self.svg_lineto(c[1])?;
-                    self.svg_lineto(c[2])?;
+                    println!("{:?} {:?}", seg.control_points[1], seg.control_points[2]);
+                    self.svg_lineto(seg.control_points[1])?;
+                    self.svg_lineto(seg.control_points[2])?;
                 },
                 SegmentTag::CurveTo => {
-                    self.svg_curveto(c[0], c[1], c[2])?;
+                    self.svg_curveto(
+                        seg.control_points[0],
+                        seg.control_points[1],
+                        seg.control_points[2],
+                    )?;
                 },
             }
         }
@@ -265,7 +265,7 @@ impl<W: Write> SvgWriter<W> {
                 }
             }
 
-            if self.opt.grouping == Grouping::Hierarchical {
+            if self.opt.grouping != Grouping::Flat {
                 writeln!(self.inner, "\"/>")?;
             }
             for q in p.children() {
@@ -295,10 +295,9 @@ impl<W: Write> SvgWriter<W> {
     }
 
     pub fn write_svg_document(&mut self, plist: &PathTree, img_info: &ImageInfo) -> Result<()> {
-        let bbox_x = img_info.transform.bb[0] + img_info.left_margin + img_info.right_margin;
-        let bbox_y = img_info.transform.bb[1] + img_info.top_margin + img_info.bottom_margin;
-        let orig_x = img_info.transform.orig[0] + img_info.left_margin;
-        let orig_y = bbox_y - img_info.transform.orig[1] - img_info.right_margin;
+        let width = img_info.page_width();
+        let height = img_info.page_height();
+        let origin = img_info.origin_top_left();
         let scale_x = img_info.transform.scale.x / self.opt.unit;
         let scale_y = -img_info.transform.scale.y / self.opt.unit;
 
@@ -311,8 +310,8 @@ impl<W: Write> SvgWriter<W> {
         // set bounding box and namespace
         writeln!(
             self.inner,
-            " width=\"{0}pt\" height=\"{1}pt\" viewBox=\"0 0 {0} {1}\"",
-            bbox_x, bbox_y
+            " width=\"{0:.6}pt\" height=\"{1:.6}pt\" viewBox=\"0 0 {0:.6} {1:.6}\"",
+            width, height
         )?;
         writeln!(self.inner, " preserveAspectRatio=\"xMidYMid meet\">")?;
 
@@ -324,13 +323,13 @@ impl<W: Write> SvgWriter<W> {
 
         // use a "group" tag to establish coordinate system and style
         write!(self.inner, "<g transform=\"")?;
-        if orig_x != 0.0 || orig_y != 0.0 {
-            write!(self.inner, "translate({},{}) ", orig_x, orig_y)?;
+        if origin != Point::default() {
+            write!(self.inner, "translate({:.6},{:.6}) ", origin.x, origin.y)?;
         }
         if self.opt.angle != 0.0 {
             write!(self.inner, "rotate({:.2}) ", -self.opt.angle)?;
         }
-        write!(self.inner, "scale({},{})", scale_x, scale_y)?;
+        write!(self.inner, "scale({:.6},{:.6})", scale_x, scale_y)?;
         writeln!(self.inner, "\"")?;
         writeln!(self.inner, "fill=\"#{:06x}\" stroke=\"none\">", self.opt.color.0)?;
 

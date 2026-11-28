@@ -10,8 +10,6 @@
 use std::ops::{Add, Div, Mul, Sub};
 
 /// A generic 2D point.
-///
-/// Corresponds to `point_t`/`dpoint_t` in Potrace.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Point<T> {
     pub x: T,
@@ -28,13 +26,11 @@ impl Point<isize> {
     pub fn signum(self) -> Self {
         Self { x: self.x.signum(), y: self.y.signum() }
     }
-    /// Returns `p1 × p2`.
-    ///
-    /// Corresponds to `int xprod(point_t, point_t)` in Potrace.
+    /// Returns `p1 × p2`, i.e. `p1.x * p2.y - p1.y * p2.x`.
     pub fn xprod(self, p2: Self) -> isize {
         self.x * p2.y - self.y * p2.x
     }
-
+    /// Converts this `Point<isize>` to `Point<f64>`.
     pub const fn to_f64(self) -> Point<f64> {
         Point { x: self.x as f64, y: self.y as f64 }
     }
@@ -49,27 +45,16 @@ impl Point<usize> {
 }
 
 impl Point<f64> {
-    /// Range over the straight line segment `a..=b` when lambda ranges over `0..=1`.
-    ///
-    /// Corresponds to `dpoint_t interval(double, dpoint_t, dpoint_t)` in Potrace.
-    // CHANGE: Renamed interval to lerp.
-    #[inline]
-    pub fn lerp(self, to: Self, lambda: f64) -> Self {
-        Self { x: self.x + lambda * (to.x - self.x), y: self.y + lambda * (to.y - self.y) }
+    /// Linearly interpolates between two points.
+    pub fn lerp(self, other: Self, t: f64) -> Self {
+        Self { x: self.x + t * (other.x - self.x), y: self.y + t * (other.y - self.y) }
     }
     /// Returns a direction that is 90 degrees counterclockwise from `p2-p0`,
     /// but then restricted to one of the major wind directions (N, NW, W, etc.).
-    ///
-    /// Corresponds to `point_t dorth_infty(dpoint_t, dpoint_t)` in Potrace.
-    // CHANGE: dorth_infty returns DPoint instead of Point to avoid f64->isize->f64 conversions.
-    #[inline]
     pub fn dorth_infty(self, p2: Self) -> Self {
-        Self { y: (p2.x - self.x).signum(), x: (p2.y - self.y).signum() }
+        Self { y: (p2.x - self.x).signum(), x: -(p2.y - self.y).signum() }
     }
     /// Returns `(p1-p0)×(p2-p0)`, the area of a parallelogram.
-    ///
-    /// Corresponds to `double dpara(dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
     pub fn dpara(self, p1: Self, p2: Self) -> f64 {
         let x1 = p1.x - self.x;
         let y1 = p1.y - self.y;
@@ -77,17 +62,12 @@ impl Point<f64> {
         let y2 = p2.y - self.y;
         x1 * y2 - x2 * y1
     }
-    /// Corresponds to `double ddenom(dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
     pub fn ddenom(self, p2: Self) -> f64 {
         let r = self.dorth_infty(p2);
         r.y * (p2.x - self.x) - r.x * (p2.y - self.y)
     }
 
     /// Returns `(p1-p0)×(p3-p2)`.
-    ///
-    /// Corresponds to `double cprod(dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
     pub fn cprod(self, p1: Self, p2: Self, p3: Self) -> f64 {
         let x1 = p1.x - self.x;
         let y1 = p1.y - self.y;
@@ -96,9 +76,6 @@ impl Point<f64> {
         x1 * y2 - x2 * y1
     }
     /// Returns `(p1-p0)*(p2-p0)`.
-    ///
-    /// Corresponds to `double iprod(dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
     pub fn iprod(self, p1: Self, p2: Self) -> f64 {
         let x1 = p1.x - self.x;
         let y1 = p1.y - self.y;
@@ -107,9 +84,6 @@ impl Point<f64> {
         x1 * x2 + y1 * y2
     }
     /// Returns `(p1-p0)*(p3-p2)`.
-    ///
-    /// Corresponds to `double iprod1(dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
     pub fn iprod1(self, p1: Self, p2: Self, p3: Self) -> f64 {
         let x1 = p1.x - self.x;
         let y1 = p1.y - self.y;
@@ -118,19 +92,12 @@ impl Point<f64> {
         x1 * x2 + y1 * y2
     }
     /// Returns the distance between two points.
-    ///
-    /// Corresponds to `double ddist(dpoint_t, dpoint_t)` in Potrace.
-    // CHANGE: Renamed ddist to distance.
-    #[inline]
     pub fn distance(self, to: Self) -> f64 {
         // TODO: check that powi(2) decomposes into just (x*x)
         ((self.x - to.x).powi(2) + (self.y - to.y).powi(2)).sqrt()
     }
 
     /// Calculates the point of a bezier curve.
-    ///
-    /// Corresponds to `dpoint_t bezier(double, dpoint_t, dpoint_t, dpoint_t, dpoint_t)` in Potrace.
-    #[inline]
     pub fn bezier(t: f64, p0: Self, p1: Self, p2: Self, p3: Self) -> Self {
         let s = 1.0 - t;
 
@@ -151,10 +118,7 @@ impl Point<f64> {
 
     /// Calculates the point `t` in `0..=1` on the (convex) bezier curve `(p0,p1,p2,p3)`
     /// which is tangent to `q1-q0`. Returns `None` if there is no solution in `0..=1`.
-    ///
-    /// Corresponds to `double tangent(dpoint_t, dpoint_t, dpoint_t, dpoint_t, dpoint_t, dpoint_t)`
-    /// in Potrace.
-    pub fn tangent(self, p1: Self, p2: Self, p3: Self, q0: Self, q1: Self) -> f64 {
+    pub fn tangent(self, p1: Self, p2: Self, p3: Self, q0: Self, q1: Self) -> Option<f64> {
         // (1-t)^2 a0 + 2(1-t)t b0 + t^2 c0 = 0
         let a0 = Self::cprod(self, p1, q0, q1);
         let b0 = Self::cprod(p1, p2, q0, q1);
@@ -168,7 +132,7 @@ impl Point<f64> {
         let d = b * b - 4.0 * a * c;
 
         if a == 0.0 || d < 0.0 {
-            return -1.0;
+            return None;
         }
 
         let s = d.sqrt();
@@ -177,11 +141,11 @@ impl Point<f64> {
         let r2 = (-b - s) / (2.0 * a);
 
         if matches!(r1, 0.0..=1.0) {
-            r1
+            Some(r1)
         } else if matches!(r2, 0.0..=1.0) {
-            r2
+            Some(r2)
         } else {
-            -1.0
+            None
         }
     }
 }
@@ -192,12 +156,28 @@ impl<T: Add<Output = T>> Add for Point<T> {
         Self { x: self.x + rhs.x, y: self.y + rhs.y }
     }
 }
-impl<T: Sub<Output = T>> Sub for Point<T> {
+/// Note: [`Sub`] is only implemented for [`Point<f64>`] since [`f64`] doesn't overflow.
+/// For [`Point<usize>`], [`Point::offset_from`] should be used instead.
+impl Sub for Point<f64> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Self { x: self.x - rhs.x, y: self.y - rhs.y }
     }
 }
+impl<T: Mul<Output = T>> Mul for Point<T> {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self { x: self.x * rhs.x, y: self.y * rhs.y }
+    }
+}
+impl<T: Div<Output = T>> Div for Point<T> {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        Self { x: self.x / rhs.x, y: self.y / rhs.y }
+    }
+}
+
+// Multiplication and division by a scalar
 impl<T: Copy + Mul<Output = T>> Mul<T> for Point<T> {
     type Output = Self;
     fn mul(self, rhs: T) -> Self::Output {
